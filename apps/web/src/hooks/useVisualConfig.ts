@@ -321,6 +321,17 @@ function getRedisUsageQueueRetentionError(value: string): 'retention_seconds_ran
   return parsed >= 1 && parsed <= 3600 ? undefined : 'retention_seconds_range';
 }
 
+function getTimezoneError(value: string): 'timezone' | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).format();
+    return undefined;
+  } catch {
+    return 'timezone';
+  }
+}
+
 function parseDisableImageGenerationMode(raw: unknown): DisableImageGenerationMode {
   if (raw === true) return 'true';
   if (typeof raw === 'string') {
@@ -330,6 +341,37 @@ function parseDisableImageGenerationMode(raw: unknown): DisableImageGenerationMo
     if (normalized === 'passthrough') return 'passthrough';
   }
   return 'false';
+}
+
+const CLAUDE_TRANSPORT_OS_VALUES = [
+  'MacOS',
+  'Windows',
+  'Linux',
+  'Android',
+  'FreeBSD',
+  'OpenBSD',
+] as const;
+
+const CLAUDE_TRANSPORT_ARCH_VALUES = ['arm64', 'x64', 'x32', 'arm'] as const;
+
+function getClaudeOsError(value: string): 'claude_os' | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return CLAUDE_TRANSPORT_OS_VALUES.includes(
+    trimmed as (typeof CLAUDE_TRANSPORT_OS_VALUES)[number]
+  )
+    ? undefined
+    : 'claude_os';
+}
+
+function getClaudeArchError(value: string): 'claude_arch' | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return CLAUDE_TRANSPORT_ARCH_VALUES.includes(
+    trimmed as (typeof CLAUDE_TRANSPORT_ARCH_VALUES)[number]
+  )
+    ? undefined
+    : 'claude_arch';
 }
 
 export function getVisualConfigValidationErrors(
@@ -343,6 +385,9 @@ export function getVisualConfigValidationErrors(
       values.redisUsageQueueRetentionSeconds
     ),
     transientErrorCooldownSeconds: getIntegerError(values.transientErrorCooldownSeconds),
+    claudeHeaderOs: getClaudeOsError(values.claudeHeaderOs),
+    claudeHeaderArch: getClaudeArchError(values.claudeHeaderArch),
+    claudeHeaderTimezone: getTimezoneError(values.claudeHeaderTimezone),
     requestRetry: getNonNegativeIntegerError(values.requestRetry),
     maxRetryCredentials: getNonNegativeIntegerError(values.maxRetryCredentials),
     maxRetryInterval: getNonNegativeIntegerError(values.maxRetryInterval),
@@ -464,6 +509,7 @@ function getNextDirtyFields(
       'claudeHeaderOs',
       'claudeHeaderArch',
       'claudeHeaderTimeout',
+      'claudeHeaderTimezone',
       'claudeHeaderStabilizeDeviceProfile',
       'codexHeaderUserAgent',
       'codexHeaderBetaFeatures',
@@ -862,6 +908,10 @@ export function useVisualConfig() {
           typeof claudeHeaderDefaults?.arch === 'string' ? claudeHeaderDefaults.arch : '',
         claudeHeaderTimeout:
           typeof claudeHeaderDefaults?.timeout === 'string' ? claudeHeaderDefaults.timeout : '',
+        claudeHeaderTimezone:
+          typeof claudeHeaderDefaults?.timezone === 'string'
+            ? claudeHeaderDefaults.timezone
+            : '',
         claudeHeaderStabilizeDeviceProfile: Boolean(
           claudeHeaderDefaults?.['stabilize-device-profile']
         ),
@@ -1150,6 +1200,7 @@ export function useVisualConfig() {
           isDirty('claudeHeaderOs') ||
           isDirty('claudeHeaderArch') ||
           isDirty('claudeHeaderTimeout') ||
+          isDirty('claudeHeaderTimezone') ||
           isDirty('claudeHeaderStabilizeDeviceProfile');
         if (claudeHeadersDirty) {
           ensureMapInDoc(doc, ['claude-header-defaults']);
@@ -1182,6 +1233,9 @@ export function useVisualConfig() {
           }
           if (isDirty('claudeHeaderTimeout')) {
             setStringInDoc(doc, ['claude-header-defaults', 'timeout'], values.claudeHeaderTimeout);
+          }
+          if (isDirty('claudeHeaderTimezone')) {
+            setStringInDoc(doc, ['claude-header-defaults', 'timezone'], values.claudeHeaderTimezone);
           }
           if (isDirty('claudeHeaderStabilizeDeviceProfile')) {
             setBooleanInDoc(

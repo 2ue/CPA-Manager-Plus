@@ -18,6 +18,9 @@ export type VisualConfigFieldPath =
   | 'maxRetryCredentials'
   | 'maxRetryInterval'
   | 'authAutoRefreshWorkers'
+  | 'claudeHeaderOs'
+  | 'claudeHeaderArch'
+  | 'claudeHeaderTimezone'
   | 'streaming.keepaliveSeconds'
   | 'streaming.bootstrapRetries'
   | 'streaming.nonstreamKeepaliveInterval';
@@ -26,7 +29,10 @@ export type VisualConfigValidationErrorCode =
   | 'port_range'
   | 'non_negative_integer'
   | 'integer'
-  | 'retention_seconds_range';
+  | 'retention_seconds_range'
+  | 'timezone'
+  | 'claude_os'
+  | 'claude_arch';
 
 export type VisualConfigValidationErrors = Partial<
   Record<VisualConfigFieldPath, VisualConfigValidationErrorCode>
@@ -146,6 +152,7 @@ export type VisualConfigValues = {
   claudeHeaderOs: string;
   claudeHeaderArch: string;
   claudeHeaderTimeout: string;
+  claudeHeaderTimezone: string;
   claudeHeaderStabilizeDeviceProfile: boolean;
   codexHeaderUserAgent: string;
   codexHeaderBetaFeatures: string;
@@ -221,6 +228,7 @@ export const DEFAULT_VISUAL_VALUES: VisualConfigValues = {
   claudeHeaderOs: '',
   claudeHeaderArch: '',
   claudeHeaderTimeout: '',
+  claudeHeaderTimezone: '',
   claudeHeaderStabilizeDeviceProfile: false,
   codexHeaderUserAgent: '',
   codexHeaderBetaFeatures: '',

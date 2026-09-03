@@ -25,6 +25,7 @@ const zhSidebar: DefaultTheme.Sidebar = [
       { text: '快速开始', link: '/guide/getting-started' },
       { text: '安装轻量面板', link: '/deployment/cpa-panel' },
       { text: '安装完整模式', link: '/deployment/installer' },
+      { text: 'Linux 源码部署', link: '/deployment/source-linux' },
     ],
   },
   {

@@ -3920,6 +3920,10 @@ export function AccountsPage() {
     () => selectedRows.filter((row) => !row.runtimeOnly && row.provider === CODEX_CONFIG.type),
     [selectedRows]
   );
+  const selectedClaudeRows = useMemo(
+    () => selectedRows.filter((row) => !row.runtimeOnly && row.provider === CLAUDE_CONFIG.type),
+    [selectedRows]
+  );
   const selectedRow = useMemo(
     () => rows.find((row) => row.selectionKey === selectedRowKey) ?? null,
     [rows, selectedRowKey]
@@ -5975,6 +5979,22 @@ export function AccountsPage() {
     [batchPatchFields, showNotification, t]
   );
 
+  const patchClaudeCloakCacheRows = useCallback(
+    async (targets: AccountRow[], enabled: boolean) => {
+      const claudeTargets = targets
+        .filter((row) => !row.runtimeOnly && row.provider === CLAUDE_CONFIG.type)
+        .map((row) => getAuthFilePatchTarget(row.raw));
+      if (claudeTargets.length === 0) {
+        showNotification(t('accounts.no_claude_accounts_selected'), 'info');
+        return;
+      }
+      await batchPatchFields(claudeTargets, {
+        cloak_cache_user_id: enabled ? 'true' : '',
+      });
+    },
+    [batchPatchFields, showNotification, t]
+  );
+
   const copyTextWithNotification = useCallback(
     async (text: string) => {
       const copied = await copyToClipboard(text);
@@ -6622,6 +6642,20 @@ export function AccountsPage() {
         icon: <IconSettings size={15} />,
         onClick: () => void patchWebsocketsRows(selectedRows, false),
         disabled: disableControls || selectedCodexRows.length === 0 || batchFieldsUpdating,
+      },
+      {
+        key: 'claude-cloak-cache-enable',
+        label: t('accounts.batch_claude_cloak_cache_enable'),
+        icon: <IconShield size={15} />,
+        onClick: () => void patchClaudeCloakCacheRows(selectedRows, true),
+        disabled: disableControls || selectedClaudeRows.length === 0 || batchFieldsUpdating,
+      },
+      {
+        key: 'claude-cloak-cache-disable',
+        label: t('accounts.batch_claude_cloak_cache_disable'),
+        icon: <IconShield size={15} />,
+        onClick: () => void patchClaudeCloakCacheRows(selectedRows, false),
+        disabled: disableControls || selectedClaudeRows.length === 0 || batchFieldsUpdating,
       },
       { key: 'batch-more-divider', type: 'divider' },
       {

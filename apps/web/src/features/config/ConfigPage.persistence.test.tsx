@@ -3,6 +3,11 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiKeyMutation } from '@/components/config/ApiKeysCardEditor';
 import type { ManagerConfigResponse } from '@/services/api/usageService';
+import type { AuthFileItem } from '@/types';
+import {
+  applyClaudeTransportProfileToYaml,
+  type ClaudeTransportProfile,
+} from './claudeTransportProfile';
 
 vi.mock('react-dom', () => ({
   createPortal: (children: ReactNode) => children,
@@ -29,6 +34,16 @@ const mocks = vi.hoisted(() => ({
   getManagerConfig: vi.fn(),
   saveManagerConfig: vi.fn(),
   reloadPage: vi.fn(),
+  authFilesBatchPatchFields: vi.fn(),
+  authFiles: [] as AuthFileItem[],
+  capturedClaudeTransportApply: null as
+    | ((
+        profile: ClaudeTransportProfile,
+        mode: 'fill-missing' | 'overwrite',
+        patchCredentialStableUserId: boolean
+      ) => Promise<void>)
+    | null,
+  capturedDiffConfirm: null as (() => Promise<void>) | null,
   capturedApiKeyOperationStart: null as (() => void) | null,
   capturedApiKeyOperationEnd: null as (() => void) | null,
   translate: (key: string) => key,
@@ -133,8 +148,64 @@ vi.mock('./components/ManagerConfigPanel', () => ({
   ),
 }));
 
+vi.mock('./ClaudeTransportProfileCard', () => ({
+  ClaudeTransportProfileCard: ({
+    onApply,
+  }: {
+    onApply: (
+      profile: ClaudeTransportProfile,
+      mode: 'fill-missing' | 'overwrite',
+      patchCredentialStableUserId: boolean
+    ) => Promise<void>;
+  }) => {
+    mocks.capturedClaudeTransportApply = onApply;
+    return (
+      <button
+        type="button"
+        data-test="apply-claude-transport"
+        onClick={() =>
+          void onApply(
+            {
+              userAgent: 'claude-cli/2.1.220 (external, cli)',
+              packageVersion: '0.94.0',
+              runtimeVersion: 'v26.3.0',
+              os: 'Linux',
+              arch: 'x64',
+              timeout: '600',
+              timezone: 'Asia/Shanghai',
+              stabilizeDeviceProfile: true,
+              disableCooling: false,
+              nonstreamKeepaliveInterval: '15',
+              streamingKeepaliveSeconds: '15',
+            },
+            'fill-missing',
+            true
+          )
+        }
+      />
+    );
+  },
+}));
+
+vi.mock('@/features/authFiles/hooks/useAuthFilesData', () => ({
+  useAuthFilesData: () => ({
+    files: mocks.authFiles,
+    loading: false,
+    batchPatchFields: mocks.authFilesBatchPatchFields,
+  }),
+}));
+
 vi.mock('@/components/config/DiffModal', () => ({
-  DiffModal: () => null,
+  DiffModal: ({
+    open,
+    onConfirm,
+  }: {
+    open: boolean;
+    onConfirm: () => Promise<void>;
+  }) => {
+    if (open) mocks.capturedDiffConfirm = onConfirm;
+    return null;
+  },
 }));
 
 vi.mock('@/components/config/ConfigSourceEditor', () => ({
@@ -215,6 +286,11 @@ vi.mock('@/hooks/useVisualConfig', () => ({
     visualValues: {
       apiKeysText: mocks.visualState.apiKeysText,
       redisUsageQueueRetentionSeconds: '60',
+      streaming: {
+        keepaliveSeconds: '15',
+        bootstrapRetries: '3',
+        nonstreamKeepaliveInterval: '15',
+      },
     },
     visualDirty: mocks.visualState.dirty,
     visualParseError: null,
@@ -262,6 +338,24 @@ const { ConfigPage } = await import('./ConfigPage');
 
 const INITIAL_YAML = 'api-keys:\n  - sk-old\n';
 const LATEST_WITHOUT_OLD_KEY = 'api-keys: []\n';
+const CLAUDE_TRANSPORT_PROFILE: ClaudeTransportProfile = {
+  userAgent: 'claude-cli/2.1.220 (external, cli)',
+  packageVersion: '0.94.0',
+  runtimeVersion: 'v26.3.0',
+  os: 'Linux',
+  arch: 'x64',
+  timeout: '600',
+  timezone: 'Asia/Shanghai',
+  stabilizeDeviceProfile: true,
+  disableCooling: false,
+  nonstreamKeepaliveInterval: '15',
+  streamingKeepaliveSeconds: '15',
+};
+const TRANSPORT_YAML = applyClaudeTransportProfileToYaml(
+  INITIAL_YAML,
+  CLAUDE_TRANSPORT_PROFILE,
+  'overwrite'
+).content;
 const MANAGER_CONFIG_RESPONSE: ManagerConfigResponse = {
   config: {
     cpaConnection: {
@@ -295,6 +389,7 @@ const originalDocument = globalThis.document;
 
 type ConfirmationOptions = {
   onConfirm: () => void | Promise<void>;
+  onCancel?: () => void;
 };
 
 type Deferred<T> = {
@@ -410,6 +505,10 @@ beforeEach(() => {
   mocks.saveManagerConfig.mockResolvedValue(MANAGER_CONFIG_RESPONSE);
   mocks.capturedApiKeyOperationStart = null;
   mocks.capturedApiKeyOperationEnd = null;
+  mocks.authFilesBatchPatchFields.mockResolvedValue({ success: 0, failed: 0, failedNames: [] });
+  mocks.authFiles = [];
+  mocks.capturedClaudeTransportApply = null;
+  mocks.capturedDiffConfirm = null;
   mocks.loadVisualValuesFromYaml.mockReturnValue({ ok: true });
   mocks.applyVisualChangesToYaml.mockImplementation((yaml: string) => yaml);
   mocks.commitApiKeysText.mockImplementation((apiKeysText: string) => {
@@ -809,6 +908,52 @@ describe('ConfigPage API-key replace preflight', () => {
     expect((mocks.apiKeyMutationErrors[0] as Error & { code?: string }).code).toBe(
       'api_key_duplicate'
     );
+  });
+});
+
+describe('ConfigPage Claude transport profile confirmation', () => {
+  it('clears the credential patch when a no-op transport confirmation is cancelled', async () => {
+    mocks.fetchConfigYaml.mockReset().mockResolvedValue(TRANSPORT_YAML);
+    mocks.authFiles = [
+      {
+        name: 'claude-main.json',
+        type: 'claude',
+        provider: 'claude',
+        runtimeOnly: false,
+      },
+    ];
+    await mountPage();
+
+    await click('apply-claude-transport');
+
+    expect(mocks.showConfirmation).toHaveBeenCalledTimes(1);
+    expect(mocks.authFilesBatchPatchFields).not.toHaveBeenCalled();
+    const confirmation = getPendingConfirmation();
+    expect(confirmation.onCancel).toEqual(expect.any(Function));
+
+    await act(async () => {
+      confirmation.onCancel?.();
+    });
+    await flush();
+
+    expect(mocks.authFilesBatchPatchFields).not.toHaveBeenCalled();
+
+    await clickTab('source');
+    const sourceEditor = renderer?.root.findByProps({ 'data-test': 'source-editor' });
+    if (!sourceEditor) throw new Error('Source editor not found');
+    act(() => {
+      sourceEditor.props.onChange({ target: { value: `${TRANSPORT_YAML}# draft\n` } });
+    });
+    await clickSave();
+
+    expect(mocks.capturedDiffConfirm).toEqual(expect.any(Function));
+    await act(async () => {
+      await mocks.capturedDiffConfirm?.();
+    });
+    await flush();
+
+    expect(mocks.saveConfigYaml).toHaveBeenCalledWith(`${TRANSPORT_YAML}# draft\n`);
+    expect(mocks.authFilesBatchPatchFields).not.toHaveBeenCalled();
   });
 });
 

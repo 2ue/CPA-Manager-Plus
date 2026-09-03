@@ -1232,18 +1232,30 @@ export function VisualConfigEditor({
                         value={values.claudeHeaderOs}
                         onChange={(e) => onChange({ claudeHeaderOs: e.target.value })}
                         disabled={disabled}
+                        error={getValidationMessage(t, validationErrors?.claudeHeaderOs)}
                       />
                       <Input
                         label={t('config_management.visual.sections.headers.arch')}
                         value={values.claudeHeaderArch}
                         onChange={(e) => onChange({ claudeHeaderArch: e.target.value })}
                         disabled={disabled}
+                        error={getValidationMessage(t, validationErrors?.claudeHeaderArch)}
                       />
                       <Input
                         label={t('config_management.visual.sections.headers.timeout')}
                         value={values.claudeHeaderTimeout}
                         onChange={(e) => onChange({ claudeHeaderTimeout: e.target.value })}
                         disabled={disabled}
+                      />
+                      <Input
+                        label={t('config_management.visual.sections.headers.timezone')}
+                        value={values.claudeHeaderTimezone}
+                        onChange={(e) => onChange({ claudeHeaderTimezone: e.target.value })}
+                        disabled={disabled}
+                        placeholder={t(
+                          'config_management.visual.sections.headers.timezone_placeholder'
+                        )}
+                        error={getValidationMessage(t, validationErrors?.claudeHeaderTimezone)}
                       />
                       <ToggleRow
                         title={t('config_management.visual.sections.headers.stabilize_device')}
