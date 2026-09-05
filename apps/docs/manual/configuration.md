@@ -49,16 +49,20 @@
 
 保存源文件前，先确认缩进、数组和字符串引号正确。保存后如果页面没有刷新，检查 CPA 是否支持热重载，或是否需要重启运行时。
 
-## Claude Code 传输层配置
+## Claude 请求与凭证维护
 
-可视化配置页中的 **Claude Code 传输层配置** 对应补丁包里的 `claude-header-defaults`、连接保活和凭证稳定用户 ID 设置。点击“预览并应用”后，页面会重新读取最新的 `config.yaml`，先展示差异，确认后才写入。
+Claude 相关设置分布在可视化配置中各自对应的功能区域，不再通过独立的传输层配置卡统一提交：
+
+- `claude-header-defaults.*`（包括 `timezone`）位于“网络配置”的 Claude Header Defaults 区域。
+- `streaming.keepalive-seconds` 与 `nonstream-keepalive-interval` 位于“流式传输配置”。
+- `disable-cooling` 位于“网络配置”，正常运行建议保持关闭。
+- 认证配置中的“补齐未配置凭证”只在点击时读取凭证列表，并为非运行时 Claude 凭证写入 `cloak_cache_user_id: true`。已有显式 `true` 或显式 `false` 的凭证都不会修改；新增或替换 Claude 凭证后可再次执行。
+
+`cloak_cache_user_id` 是逐凭证开关，不是所有账号共享一个 User ID。启用后，CPA 会按凭证 API key 缓存其伪造的 `metadata.user_id`；请求中已有合法 User ID 时不会覆盖。
 
 - `user-agent`、`package-version` 和 `runtime-version` 使用真实存在且相互匹配的 Claude Code 版本组合，不要自行拼接版本。
 - `os`、`arch` 和 `timezone` 必须填写当前客户端的真实设备信息。`timezone` 使用 IANA 格式，例如 `Asia/Shanghai`；不要把示例值直接套到不同设备或账号。
-- **仅补齐缺失值**适合首次启用；**覆盖已有值**会改写这些路径下的现有配置。
 - **稳定设备指纹**写入 `stabilize-device-profile: true`，用于固定 CPA 对 Claude 请求声明的设备形状。
-- **禁用冷却**只适合临时检查账号支持的模型。正常运行应保持关闭，让失败凭证按 CPA 的冷却策略下架。
-- **凭证中的稳定 Claude 用户 ID**会为非运行时 Claude 凭证写入 `cloak_cache_user_id: true`；关闭开关会清空该字段。新登录或替换账号后可再次执行。
 - 非流式和流式 keepalive 只用于维持连接，不是防封或完整风控方案。语义行为、请求节奏和账号使用方式仍需符合上游规则。
 
 配置和凭证是否立即生效取决于 CPA 版本的热加载能力。页面只通过现有管理 API 写入，不会在 `auth-dir` 中创建备份文件；请在部署目录单独保留备份。测试时只使用账号实际支持的模型，避免因为不支持的模型触发认证失败和冷却。

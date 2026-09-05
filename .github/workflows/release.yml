@@ -493,8 +493,8 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
       DRY_RUN: ${{ needs.preflight.outputs.dry_run }}
-      DOCKERHUB_IMAGE: seakee/cpa-manager-plus
-      GHCR_IMAGE: ghcr.io/seakee/cpa-manager-plus
+      DOCKERHUB_IMAGE: ${{ github.repository_owner }}/cpa-manager-plus
+      GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/cpa-manager-plus
 
     steps:
       - name: Checkout release source
@@ -516,9 +516,10 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
+          expected_dockerhub_image="${GITHUB_REPOSITORY_OWNER}/cpa-manager-plus"
 
-          if [ "${DOCKERHUB_IMAGE}" != "seakee/cpa-manager-plus" ]; then
-            echo "Docker image name must be seakee/cpa-manager-plus" >&2
+          if [ "${DOCKERHUB_IMAGE}" != "${expected_dockerhub_image}" ]; then
+            echo "Docker image name must be ${expected_dockerhub_image}" >&2
             exit 1
           fi
 

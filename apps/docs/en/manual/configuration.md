@@ -49,16 +49,20 @@ Use the visual editor for normal operations. Use source mode when you need to:
 
 Before saving source configuration, check indentation, arrays, and quoted strings. If a saved change does not appear to take effect, check whether CPA supports hot reload or needs a restart.
 
-## Claude Code Transport Profile
+## Claude Request And Credential Maintenance
 
-The **Claude Code Transport Profile** section in Visual Configuration covers the patch package's `claude-header-defaults`, connection keepalive, and credential stable-user-ID behavior. Selecting **Preview and Apply** rereads the latest `config.yaml`, shows a diff, and writes only after confirmation.
+Claude settings are kept in their existing functional sections rather than a separate transport profile:
+
+- `claude-header-defaults.*`, including `timezone`, is edited under Network Configuration's Claude Header Defaults.
+- `streaming.keepalive-seconds` and `nonstream-keepalive-interval` are edited under Streaming Configuration.
+- `disable-cooling` remains under Network Configuration and should normally stay disabled.
+- The Authentication Configuration action **Fill Missing Credentials** reads the credential list only when clicked, then writes `cloak_cache_user_id: true` to non-runtime Claude credentials that do not explicitly configure the field. Explicit `true` and explicit `false` values are both preserved. Run it again after adding or replacing a Claude credential.
+
+`cloak_cache_user_id` is a per-credential switch, not one shared User ID. When enabled, CPA caches the generated `metadata.user_id` by credential API key and does not replace a valid User ID already present in a request.
 
 - Keep `user-agent`, `package-version`, and `runtime-version` as a real, internally consistent Claude Code release combination. Do not invent a version tuple.
 - `os`, `arch`, and `timezone` must describe the actual client device. `timezone` uses IANA format such as `Asia/Shanghai`; do not reuse an example value for a different device or account.
-- **Fill missing values only** is intended for first-time setup. **Overwrite existing values** replaces values at the affected paths.
 - **Stabilize Device Profile** writes `stabilize-device-profile: true`, keeping the device shape declared by CPA stable across Claude requests.
-- **Disable Cooling** is for temporary model-capability checks. Leave it disabled in normal operation so CPA can remove failing credentials according to its cooldown policy.
-- **Stable Claude User ID in Credentials** writes `cloak_cache_user_id: true` to non-runtime Claude credentials. Turning it off clears that field. Run it again after adding or replacing an account.
 - Non-stream and streaming keepalive only keep connections open. They are not an anti-ban mechanism or a complete risk-control solution; request behavior, timing, and account usage still matter.
 
 Whether configuration and credentials hot-reload depends on the CPA build. The page writes through the existing management APIs and does not create backups inside `auth-dir`; keep backups outside that directory. Test only models the account actually supports so a capability probe does not trigger authentication failure and cooldown.

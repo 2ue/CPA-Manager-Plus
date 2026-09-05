@@ -1,4 +1,5 @@
 import type { ModelPrice, ModelPriceContextTier, ModelPriceServiceTier } from '@/utils/usage';
+import type { ModelInfo } from '@/utils/models';
 import type {
   ModelPriceUsageSummaryResponse,
   ModelPriceSyncCandidate,
@@ -137,6 +138,24 @@ export const buildSyncPriceModelsFromSummary = (
   return Array.from(models)
     .filter(Boolean)
     .sort((left, right) => left.localeCompare(right));
+};
+
+export const buildSyncPriceModelsFromModelList = (
+  modelList: ModelInfo[],
+  summary: ModelPriceUsageSummaryResponse | null,
+  prices: Record<string, ModelPrice>
+) => {
+  const models = new Set<string>();
+  modelList.forEach((model) => {
+    const name = model.name?.trim();
+    if (name) models.add(name);
+  });
+
+  if (models.size === 0) {
+    return buildSyncPriceModelsFromSummary(summary, prices);
+  }
+
+  return Array.from(models).sort((left, right) => left.localeCompare(right));
 };
 
 export const buildCandidateMap = (candidateSets: ModelPriceSyncCandidateSet[] = []) => {

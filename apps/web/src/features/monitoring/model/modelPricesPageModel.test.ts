@@ -4,6 +4,7 @@ import {
   buildPriceFromDraft,
   buildModelPriceRows,
   buildModelPriceSummary,
+  buildSyncPriceModelsFromModelList,
   buildSyncPriceModelsFromSummary,
   filterModelPriceRows,
   formatContextThreshold,
@@ -38,6 +39,30 @@ describe('modelPricesPageModel', () => {
   it('builds sync models from requested, resolved, and saved prices', () => {
     expect(
       buildSyncPriceModelsFromSummary(usageSummary, {
+        'manual-model': { prompt: 1, completion: 2, cache: 0.5 },
+      })
+    ).toEqual(['alias-fast', 'gpt-5.5', 'manual-model']);
+  });
+
+  it('uses the fetched model list as the sync scope when it is available', () => {
+    expect(
+      buildSyncPriceModelsFromModelList(
+        [
+          { name: 'gpt-5.6-sol', alias: 'fast-alias' },
+          { name: ' gpt-5.6-terra ' },
+          { name: 'gpt-5.5' },
+        ],
+        usageSummary,
+        {
+          'manual-model': { prompt: 1, completion: 2, cache: 0.5 },
+        }
+      )
+    ).toEqual(['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra']);
+  });
+
+  it('falls back to saved and usage models when the fetched model list is empty', () => {
+    expect(
+      buildSyncPriceModelsFromModelList([], usageSummary, {
         'manual-model': { prompt: 1, completion: 2, cache: 0.5 },
       })
     ).toEqual(['alias-fast', 'gpt-5.5', 'manual-model']);

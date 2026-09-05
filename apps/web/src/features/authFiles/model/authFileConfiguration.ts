@@ -24,6 +24,22 @@ export const AUTH_FILE_CONFIGURATION_TARGET_NOT_FOUND = 'AUTH_FILE_CONFIGURATION
 export const XAI_OFFICIAL_API_BASE_URL = 'https://api.x.ai/v1';
 export const AUTH_FILE_WEIGHT_MAX = 1_000_000;
 
+const CLOAK_CACHE_USER_ID_KEYS = [
+  'cloak_cache_user_id',
+  'cloakCacheUserId',
+  'cloak-cache-user-id',
+] as const;
+
+/**
+ * Returns whether a credential explicitly carries the Claude stable user ID
+ * switch. `false` is an explicit choice and must not be treated as missing.
+ */
+export const hasExplicitClaudeCloakCacheUserId = (file: AuthFileItem): boolean =>
+  CLOAK_CACHE_USER_ID_KEYS.some((key) => {
+    const value = file[key];
+    return typeof value === 'string' ? value.trim() !== '' : value !== undefined && value !== null;
+  });
+
 export type XaiRoutingMode = 'grok-build' | 'official-api';
 
 export type AuthFileConfigurationDraft = {

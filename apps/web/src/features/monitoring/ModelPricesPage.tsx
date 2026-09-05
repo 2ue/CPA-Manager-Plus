@@ -1,24 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { IconPencil, IconSearch, IconTrash2, IconX } from '@/components/ui/icons';
+import { IconPencil, IconRefreshCw, IconSearch, IconTrash2, IconX } from '@/components/ui/icons';
 import { usePanelFeatureAvailability } from '@/hooks/usePanelFeatureAvailability';
+import { apiKeysApi } from '@/services/api/apiKeys';
 import {
   usageServiceApi,
   type ModelPriceSyncCandidate,
   type ModelPriceSyncResponse,
   type ModelPriceUsageSummaryResponse,
 } from '@/services/api/usageService';
-import { useAuthStore, useNotificationStore } from '@/stores';
+import { useAuthStore, useConfigStore, useModelsStore, useNotificationStore } from '@/stores';
 import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
 import {
   applyCandidatePrice,
   buildModelPriceRows,
   buildModelPriceSummary,
   buildPriceFromDraft,
-  buildSyncPriceModelsFromSummary,
+  buildSyncPriceModelsFromModelList,
   createEmptyPriceDraft,
   createPriceDraft,
   filterModelPriceRows,
@@ -44,16 +45,49 @@ const resolveErrorMessage = (error: unknown, fallback: string) => {
     : rawMessage;
 };
 
+const normalizeApiKeyList = (input: unknown): string[] => {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const keys: string[] = [];
+
+  input.forEach((item) => {
+    const record =
+      item !== null && typeof item === 'object' && !Array.isArray(item)
+        ? (item as Record<string, unknown>)
+        : null;
+    const value =
+      typeof item === 'string'
+        ? item
+        : record
+          ? (record['api-key'] ?? record['apiKey'] ?? record.key ?? record.Key)
+          : '';
+    const trimmed = String(value ?? '').trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    keys.push(trimmed);
+  });
+
+  return keys;
+};
+
 export function ModelPricesPage() {
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const managementKey = useAuthStore((state) => state.managementKey);
+  const connectionStatus = useAuthStore((state) => state.connectionStatus);
+  const apiBase = useAuthStore((state) => state.apiBase);
+  const config = useConfigStore((state) => state.config);
+  const models = useModelsStore((state) => state.models);
+  const modelsLoading = useModelsStore((state) => state.loading);
+  const modelsError = useModelsStore((state) => state.error);
+  const fetchModelsFromStore = useModelsStore((state) => state.fetchModels);
   const featureAvailability = usePanelFeatureAvailability();
   const { loading, modelPrices, setModelPrices, syncModelPrices, usageServiceAvailable } =
     useUsageData({ loadUsageEvents: false });
   const [usageSummary, setUsageSummary] = useState<ModelPriceUsageSummaryResponse | null>(null);
   const [usageSummaryLoading, setUsageSummaryLoading] = useState(false);
   const initialUiState = useRef(readModelPricesPageUiState());
+  const apiKeysCache = useRef<string[]>([]);
   const [search, setSearch] = useState(() => initialUiState.current.search);
   const [filter, setFilter] = useState<ModelPriceFilter>(() => initialUiState.current.filter);
   const [syncing, setSyncing] = useState(false);
@@ -66,9 +100,15 @@ export function ModelPricesPage() {
     : '';
 
   const syncModels = useMemo(
-    () => buildSyncPriceModelsFromSummary(usageSummary, modelPrices),
-    [modelPrices, usageSummary]
+    () => buildSyncPriceModelsFromModelList(models, usageSummary, modelPrices),
+    [modelPrices, models, usageSummary]
   );
+  const modelListScopeLabel = useMemo(() => {
+    if (modelsLoading) return t('model_prices.model_list_loading');
+    if (models.length > 0) return t('model_prices.model_list_count', { count: models.length });
+    if (modelsError) return t('model_prices.model_list_unavailable');
+    return t('model_prices.model_list_fallback');
+  }, [models.length, modelsError, modelsLoading, t]);
 
   const candidateSets = useMemo(() => syncResult?.candidates ?? [], [syncResult?.candidates]);
   const rows = useMemo(
@@ -94,6 +134,60 @@ export function ModelPricesPage() {
   useEffect(() => {
     writeModelPricesPageUiState({ search, filter });
   }, [filter, search]);
+
+  useEffect(() => {
+    apiKeysCache.current = [];
+  }, [apiBase, config?.apiKeys]);
+
+  const resolveApiKeysForModels = useCallback(async () => {
+    if (apiKeysCache.current.length) {
+      return apiKeysCache.current;
+    }
+
+    const configKeys = normalizeApiKeyList(config?.apiKeys);
+    if (configKeys.length) {
+      apiKeysCache.current = configKeys;
+      return configKeys;
+    }
+
+    try {
+      const list = await apiKeysApi.list();
+      const normalized = normalizeApiKeyList(list);
+      if (normalized.length) {
+        apiKeysCache.current = normalized;
+      }
+      return normalized;
+    } catch (err) {
+      console.warn('Auto loading API keys for model price sync failed:', err);
+      return [];
+    }
+  }, [config?.apiKeys]);
+
+  const loadModelsForPricing = useCallback(
+    async ({ forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
+      if (connectionStatus !== 'connected' || !apiBase) {
+        return [];
+      }
+
+      if (forceRefresh) {
+        apiKeysCache.current = [];
+      }
+
+      try {
+        const apiKeys = await resolveApiKeysForModels();
+        const primaryKey = apiKeys[0];
+        return await fetchModelsFromStore(apiBase, primaryKey, forceRefresh);
+      } catch (err) {
+        console.warn('Model list fetch for price sync failed:', err);
+        return [];
+      }
+    },
+    [apiBase, connectionStatus, fetchModelsFromStore, resolveApiKeysForModels]
+  );
+
+  useEffect(() => {
+    void loadModelsForPricing();
+  }, [loadModelsForPricing]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -128,13 +222,20 @@ export function ModelPricesPage() {
   }, [managementKey, modelPriceServiceBase]);
 
   const handleSync = async () => {
-    if (syncModels.length === 0) {
-      showNotification(t('usage_stats.model_price_sync_no_models'), 'warning');
-      return;
-    }
     setSyncing(true);
     try {
-      const result = await syncModelPrices(syncModels);
+      const latestModels = await loadModelsForPricing({ forceRefresh: true });
+      const modelsToSync =
+        latestModels.length > 0
+          ? buildSyncPriceModelsFromModelList(latestModels, usageSummary, modelPrices)
+          : syncModels;
+
+      if (modelsToSync.length === 0) {
+        showNotification(t('usage_stats.model_price_sync_no_models'), 'warning');
+        return;
+      }
+
+      const result = await syncModelPrices(modelsToSync);
       setSyncResult(result);
       showNotification(
         t('model_prices.sync_success_detail', {
@@ -232,9 +333,23 @@ export function ModelPricesPage() {
               ? t('model_prices.usage_service_ready')
               : t('model_prices.usage_service_required')}
           </span>
+          <span className={styles.metaPill} title={modelsError || undefined}>
+            {modelListScopeLabel}
+          </span>
           <span className={styles.metaPill}>
             {t('model_prices.sync_model_count', { count: syncModels.length })}
           </span>
+          <Button
+            size="xs"
+            variant="secondary"
+            onClick={() => void loadModelsForPricing({ forceRefresh: true })}
+            loading={modelsLoading}
+            disabled={connectionStatus !== 'connected' || !apiBase}
+            className={styles.toolbarButton}
+          >
+            <IconRefreshCw size={14} />
+            {t('model_prices.refresh_models')}
+          </Button>
           <Button
             size="xs"
             variant="secondary"

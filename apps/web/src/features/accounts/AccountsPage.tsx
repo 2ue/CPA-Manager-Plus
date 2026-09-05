@@ -59,6 +59,7 @@ import { useInterval } from '@/hooks/useInterval';
 import { usePanelFeatureAvailability } from '@/hooks/usePanelFeatureAvailability';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { getAuthFileIcon } from '@/features/authFiles/constants';
+import { hasExplicitClaudeCloakCacheUserId } from '@/features/authFiles/model/authFileConfiguration';
 import {
   useAuthFilesData,
   type AuthFilesCredentialMutation,
@@ -5995,6 +5996,27 @@ export function AccountsPage() {
     [batchPatchFields, showNotification, t]
   );
 
+  const patchMissingClaudeCloakCacheRows = useCallback(
+    async (targets: AccountRow[]) => {
+      const claudeTargets = targets
+        .filter(
+          (row) =>
+            !row.runtimeOnly &&
+            row.provider === CLAUDE_CONFIG.type &&
+            !hasExplicitClaudeCloakCacheUserId(row.raw)
+        )
+        .map((row) => getAuthFilePatchTarget(row.raw));
+      if (claudeTargets.length === 0) {
+        showNotification(t('auth_files.batch_claude_cloak_cache_no_missing'), 'info');
+        return;
+      }
+      await batchPatchFields(claudeTargets, {
+        cloak_cache_user_id: 'true',
+      });
+    },
+    [batchPatchFields, showNotification, t]
+  );
+
   const copyTextWithNotification = useCallback(
     async (text: string) => {
       const copied = await copyToClipboard(text);
@@ -6645,14 +6667,21 @@ export function AccountsPage() {
       },
       {
         key: 'claude-cloak-cache-enable',
-        label: t('accounts.batch_claude_cloak_cache_enable'),
+        label: t('auth_files.batch_claude_cloak_cache_enable'),
         icon: <IconShield size={15} />,
         onClick: () => void patchClaudeCloakCacheRows(selectedRows, true),
         disabled: disableControls || selectedClaudeRows.length === 0 || batchFieldsUpdating,
       },
       {
+        key: 'claude-cloak-cache-fill-missing',
+        label: t('auth_files.batch_claude_cloak_cache_fill_missing'),
+        icon: <IconShield size={15} />,
+        onClick: () => void patchMissingClaudeCloakCacheRows(selectedRows),
+        disabled: disableControls || selectedClaudeRows.length === 0 || batchFieldsUpdating,
+      },
+      {
         key: 'claude-cloak-cache-disable',
-        label: t('accounts.batch_claude_cloak_cache_disable'),
+        label: t('auth_files.batch_claude_cloak_cache_disable'),
         icon: <IconShield size={15} />,
         onClick: () => void patchClaudeCloakCacheRows(selectedRows, false),
         disabled: disableControls || selectedClaudeRows.length === 0 || batchFieldsUpdating,

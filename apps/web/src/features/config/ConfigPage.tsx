@@ -31,13 +31,7 @@ import { useVisualConfig } from '@/hooks/useVisualConfig';
 import { useAuthFilesData } from '@/features/authFiles/hooks/useAuthFilesData';
 import { isRuntimeOnlyAuthFile } from '@/features/authFiles/constants';
 import { getAuthFilePatchTarget } from '@/features/authFiles/model/credentialStatus';
-import type { AuthFilePatchTarget } from '@/features/authFiles/model/credentialStatus';
-import { ClaudeTransportProfileCard } from './ClaudeTransportProfileCard';
-import {
-  applyClaudeTransportProfileToYaml,
-  type ClaudeTransportApplyMode,
-  type ClaudeTransportProfile,
-} from './claudeTransportProfile';
+import { hasExplicitClaudeCloakCacheUserId } from '@/features/authFiles/model/authFileConfiguration';
 import {
   useNotificationStore,
   useAuthStore,
@@ -61,6 +55,7 @@ import { ManagerConfigPanel } from './components/ManagerConfigPanel';
 import styles from './ConfigPage.module.scss';
 
 type ConfigEditorTab = 'visual' | 'source' | 'manager';
+type ConfigPreviewTab = 'visual' | 'source';
 export type ManagerBindingStatus = 'unknown' | 'unconfigured' | 'matched';
 
 const MANAGER_COLLECTOR_DEFAULT = {
@@ -75,7 +70,6 @@ const MANAGER_COLLECTOR_DEFAULT = {
 };
 
 const CONFIG_TAB_STORAGE_KEY = 'config-management:tab';
-
 // eslint-disable-next-line react-refresh/only-export-components
 export function resolveManagerRequestAuthKey({
   panelHostedByUsageService,
@@ -368,7 +362,9 @@ export function ConfigPage() {
 
   const [activeTab, setActiveTab] = useState<ConfigEditorTab>(() => {
     const saved = localStorage.getItem(CONFIG_TAB_STORAGE_KEY);
-    if (saved === 'visual' || saved === 'source' || saved === 'manager') return saved;
+    if (saved === 'visual' || saved === 'source' || saved === 'manager') {
+      return saved;
+    }
     return 'visual';
   });
 
@@ -384,15 +380,7 @@ export function ConfigPage() {
   const [serverYaml, setServerYaml] = useState('');
   const [mergedYaml, setMergedYaml] = useState('');
   const [previewServerYaml, setPreviewServerYaml] = useState('');
-  const [previewTab, setPreviewTab] = useState<ConfigEditorTab>('visual');
-  const [pendingClaudeTransport, setPendingClaudeTransport] = useState<{
-    profile: ClaudeTransportProfile;
-    mode: ClaudeTransportApplyMode;
-  } | null>(null);
-  const [pendingClaudeCredentialPatch, setPendingClaudeCredentialPatch] = useState<{
-    enabled: boolean;
-    targets: AuthFilePatchTarget[];
-  } | null>(null);
+  const [previewTab, setPreviewTab] = useState<ConfigPreviewTab>('visual');
   const [managerConfig, setManagerConfig] = useState<ManagerConfig | null>(null);
   const [managerConfigSource, setManagerConfigSource] = useState('');
   const [managerCPAUsage, setManagerCPAUsage] = useState<CPAUsageConfig | null>(null);
@@ -454,10 +442,9 @@ export function ConfigPage() {
     connectionFingerprint: detectedPanelBase,
   });
   const {
-    files: authFiles,
-    loading: authFilesLoading,
     batchFieldsUpdating,
     batchPatchFields,
+    loadFiles,
   } = authFilesData;
   const managerCollectorModeOptions = useMemo(
     () => [
@@ -508,8 +495,6 @@ export function ConfigPage() {
       setServerYaml(data);
       setMergedYaml(data);
       setPreviewServerYaml(data);
-      setPendingClaudeTransport(null);
-      setPendingClaudeCredentialPatch(null);
       updateSourceSnapshotStale(false);
       setSourceConfigLoaded(true);
       loadVisualValuesFromYaml(data);
@@ -903,133 +888,48 @@ export function ConfigPage() {
     void loadManagerConfig();
   }, [activeTab, loadManagerConfig]);
 
-  const patchClaudeCredentials = useCallback(
-    async (pending: NonNullable<typeof pendingClaudeCredentialPatch>) => {
-      if (pending.targets.length === 0) return null;
-      try {
-        const result = await batchPatchFields(pending.targets, {
-          cloak_cache_user_id: pending.enabled ? 'true' : '',
-        });
-        if (result && result.failed > 0) {
-          showNotification(
-            t('config_management.claude_transport.credentials_partial', {
-              success: result.success,
-              failed: result.failed,
-            }),
-            'warning'
-          );
-        }
-        return result;
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : '';
+  const handleEnableMissingClaudeStableUserIds = useCallback(async () => {
+    if (disableControls || batchFieldsUpdating) return;
+
+    try {
+      const files = await loadFiles({ throwOnError: true });
+      const targets = (files ?? [])
+        .filter(
+          (file) =>
+            !isRuntimeOnlyAuthFile(file) &&
+            String(file.provider ?? file.type ?? '')
+              .trim()
+              .toLowerCase() === 'claude' &&
+            !hasExplicitClaudeCloakCacheUserId(file)
+        )
+        .map(getAuthFilePatchTarget);
+
+      if (targets.length === 0) {
         showNotification(
-          `${t('config_management.claude_transport.credentials_failed')}${
-            message ? `: ${message}` : ''
-          }`,
-          'error'
+          t('config_management.visual.sections.auth.claude_stable_user_id_no_changes'),
+          'info'
         );
-        return null;
-      }
-    },
-    [batchPatchFields, showNotification, t]
-  );
-
-  const patchPendingClaudeCredentials = useCallback(async () => {
-    const pending = pendingClaudeCredentialPatch;
-    if (!pending) {
-      setPendingClaudeCredentialPatch(null);
-      return null;
-    }
-    const result = await patchClaudeCredentials(pending);
-    setPendingClaudeCredentialPatch(null);
-    return result;
-  }, [patchClaudeCredentials, pendingClaudeCredentialPatch]);
-
-  const handleApplyClaudeTransportProfile = useCallback(
-    async (
-      profile: ClaudeTransportProfile,
-      mode: ClaudeTransportApplyMode,
-      patchCredentialStableUserId: boolean
-    ) => {
-      if (sourceDirty || diffModalOpen || savingRef.current || managerSavingRef.current) {
-        showNotification(t('config_management.claude_transport.unsaved_guard'), 'warning');
         return;
       }
-      if (authFilesLoading || batchFieldsUpdating) return;
 
-      try {
-        const latestYaml = await configFileApi.fetchConfigYaml();
-        const result = applyClaudeTransportProfileToYaml(latestYaml, profile, mode);
-        const targets = authFiles
-          .filter(
-            (file) =>
-              !isRuntimeOnlyAuthFile(file) &&
-              String(file.provider ?? file.type ?? '')
-                .trim()
-                .toLowerCase() === 'claude'
-          )
-          .map(getAuthFilePatchTarget);
-        const credentialPatch = {
-          enabled: patchCredentialStableUserId,
-          targets,
-        };
-        setPendingClaudeTransport({ profile, mode });
-        setPendingClaudeCredentialPatch(credentialPatch);
-
-        if (result.content === normalizeYamlForVisualDiff(latestYaml)) {
-          // There is no config diff to confirm. Keep only the credential patch
-          // pending while the confirmation dialog is open.
-          setPendingClaudeTransport(null);
-          if (targets.length === 0) {
-            setPendingClaudeCredentialPatch(null);
-            showNotification(t('config_management.diff.no_changes'), 'info');
-            return;
-          }
-          showConfirmation({
-            title: t('config_management.claude_transport.credentials_confirm_title'),
-            message: t('config_management.claude_transport.credentials_confirm_message', {
-              count: targets.length,
-            }),
-            confirmText: t('config_management.claude_transport.credentials_confirm'),
-            cancelText: t('common.cancel'),
-            variant: patchCredentialStableUserId ? 'primary' : 'danger',
-            onConfirm: async () => {
-              await patchClaudeCredentials(credentialPatch);
-              setPendingClaudeTransport(null);
-              setPendingClaudeCredentialPatch(null);
-            },
-            onCancel: () => {
-              setPendingClaudeTransport(null);
-              setPendingClaudeCredentialPatch(null);
-            },
-          });
-          return;
-        }
-
-        setServerYaml(normalizeYamlForVisualDiff(latestYaml));
-        setMergedYaml(result.content);
-        setPreviewServerYaml(latestYaml);
-        setPreviewTab('visual');
-        setDiffModalOpen(true);
-      } catch (error: unknown) {
-        setPendingClaudeTransport(null);
-        setPendingClaudeCredentialPatch(null);
-        const message = error instanceof Error ? error.message : '';
-        showNotification(`${t('notification.save_failed')}: ${message}`, 'error');
-      }
-    },
-    [
-      authFiles,
-      authFilesLoading,
-      batchFieldsUpdating,
-      diffModalOpen,
-      patchClaudeCredentials,
-      showConfirmation,
-      showNotification,
-      sourceDirty,
-      t,
-    ]
-  );
+      await batchPatchFields(targets, { cloak_cache_user_id: 'true' });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '';
+      showNotification(
+        `${t('config_management.visual.sections.auth.claude_stable_user_id_failed')}${
+          message ? `: ${message}` : ''
+        }`,
+        'error'
+      );
+    }
+  }, [
+    batchFieldsUpdating,
+    batchPatchFields,
+    disableControls,
+    loadFiles,
+    showNotification,
+    t,
+  ]);
 
   const handleConfirmSave = async () => {
     if (
@@ -1049,19 +949,10 @@ export function ConfigPage() {
     try {
       const latestServerYaml = await configFileApi.fetchConfigYaml();
       if (latestServerYaml !== previewServerYaml) {
-        const nextMergedYaml = pendingClaudeTransport
-          ? applyClaudeTransportProfileToYaml(
-              latestServerYaml,
-              pendingClaudeTransport.profile,
-              pendingClaudeTransport.mode
-            ).content
-          : previewTab === 'visual'
-            ? applyVisualChangesToYaml(latestServerYaml)
-            : mergedYaml;
+        const nextMergedYaml =
+          previewTab === 'visual' ? applyVisualChangesToYaml(latestServerYaml) : mergedYaml;
         const nextServerYaml =
-          pendingClaudeTransport || previewTab === 'visual'
-            ? normalizeYamlForVisualDiff(latestServerYaml)
-            : latestServerYaml;
+          previewTab === 'visual' ? normalizeYamlForVisualDiff(latestServerYaml) : latestServerYaml;
 
         setPreviewServerYaml(latestServerYaml);
         setServerYaml(nextServerYaml);
@@ -1071,12 +962,8 @@ export function ConfigPage() {
           setDirty(false);
           setDiffModalOpen(false);
           setContent(latestServerYaml);
-          setPendingClaudeTransport(null);
           loadVisualValuesFromYaml(latestServerYaml);
           showNotification(t('config_management.diff.no_changes'), 'info');
-          if (pendingClaudeTransport) {
-            await patchPendingClaudeCredentials();
-          }
         }
         return;
       }
@@ -1093,7 +980,6 @@ export function ConfigPage() {
       setServerYaml(latestContent);
       setMergedYaml(latestContent);
       setPreviewServerYaml(latestContent);
-      setPendingClaudeTransport(null);
       updateSourceSnapshotStale(false);
       loadVisualValuesFromYaml(latestContent);
 
@@ -1118,7 +1004,6 @@ export function ConfigPage() {
       if (commercialModeChanged) {
         showNotification(t('notification.commercial_mode_restart_required'), 'warning');
       }
-      await patchPendingClaudeCredentials();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
       showNotification(`${t('notification.save_failed')}: ${message}`, 'error');
@@ -1382,7 +1267,7 @@ export function ConfigPage() {
       setServerYaml(diffOriginal);
       setMergedYaml(nextMergedYaml);
       setPreviewServerYaml(latestServerYaml);
-      setPreviewTab(activeTab);
+      setPreviewTab(activeTab === 'source' ? 'source' : 'visual');
       setDiffModalOpen(true);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
@@ -1450,7 +1335,7 @@ export function ConfigPage() {
             setDirty(true);
           }
         }
-      } else {
+      } else if (activeTab !== 'visual') {
         const result = loadVisualValuesFromYaml(content);
         if (!result.ok) {
           showNotification(
@@ -1875,37 +1760,6 @@ export function ConfigPage() {
             />
           ) : activeTab === 'visual' ? (
             <>
-              {sourceConfigLoaded ? (
-                <ClaudeTransportProfileCard
-                  key={serverYaml}
-                  values={{
-                    userAgent: visualValues.claudeHeaderUserAgent,
-                    packageVersion: visualValues.claudeHeaderPackageVersion,
-                    runtimeVersion: visualValues.claudeHeaderRuntimeVersion,
-                    os: visualValues.claudeHeaderOs,
-                    arch: visualValues.claudeHeaderArch,
-                    timeout: visualValues.claudeHeaderTimeout,
-                    timezone: visualValues.claudeHeaderTimezone,
-                    stabilizeDeviceProfile: visualValues.claudeHeaderStabilizeDeviceProfile,
-                    disableCooling: visualValues.disableCooling,
-                    nonstreamKeepaliveInterval:
-                      visualValues.streaming.nonstreamKeepaliveInterval,
-                    streamingKeepaliveSeconds: visualValues.streaming.keepaliveSeconds,
-                  }}
-                  files={authFiles}
-                  filesLoading={authFilesLoading}
-                  disabled={
-                    disableControls ||
-                    loading ||
-                    saving ||
-                    managerSaving ||
-                    batchFieldsUpdating ||
-                    diffModalOpen ||
-                    apiKeyMutationInFlight
-                  }
-                  onApply={handleApplyClaudeTransportProfile}
-                />
-              ) : null}
               <VisualConfigEditor
                 values={visualValues}
                 validationErrors={visualValidationErrors}
@@ -1923,6 +1777,9 @@ export function ConfigPage() {
                 onRefreshApiKeys={refreshApiKeys}
                 onApiKeyOperationStart={beginApiKeyOperation}
                 onApiKeyOperationEnd={endApiKeyOperation}
+                onEnableMissingClaudeStableUserIds={handleEnableMissingClaudeStableUserIds}
+                claudeStableUserIdUpdating={batchFieldsUpdating}
+                claudeStableUserIdDisabled={disableControls || batchFieldsUpdating}
               />
             </>
           ) : (
@@ -2019,8 +1876,6 @@ export function ConfigPage() {
         onConfirm={handleConfirmSave}
         onCancel={() => {
           setDiffModalOpen(false);
-          setPendingClaudeTransport(null);
-          setPendingClaudeCredentialPatch(null);
         }}
         loading={saving}
       />

@@ -202,6 +202,23 @@ const makeCodexFile = (name: string, authIndex: string, account: string): AuthFi
     disabled: false,
   }) as AuthFileItem;
 
+const makeClaudeFile = (
+  name: string,
+  authIndex: string,
+  account: string,
+  overrides: Record<string, unknown> = {}
+): AuthFileItem =>
+  ({
+    name,
+    type: 'claude',
+    provider: 'claude',
+    authIndex,
+    account,
+    priority: 0,
+    disabled: false,
+    ...overrides,
+  }) as AuthFileItem;
+
 const CODEX_MAIN_MODEL = 'gpt-5.6-sol';
 const CODEX_MAIN_SCOPE = { kind: 'family', key: 'codex_main', complete: true } as const;
 
@@ -3852,6 +3869,61 @@ describe('AccountsPage replacement flows', () => {
     expect(mocks.batchPatchFields).toHaveBeenCalledWith([getAuthFilePatchTarget(mocks.files[0])], {
       websockets: true,
     });
+  });
+
+  it('fills only missing Claude stable user ID fields without overriding explicit values', async () => {
+    const missing = makeClaudeFile('claude.json', 'auth-missing', 'missing@example.com');
+    const enabled = makeClaudeFile('claude.json', 'auth-enabled', 'enabled@example.com', {
+      cloak_cache_user_id: true,
+    });
+    const disabled = makeClaudeFile('claude.json', 'auth-disabled', 'disabled@example.com', {
+      cloak_cache_user_id: false,
+    });
+    mocks.files = [missing, enabled, disabled];
+    mocks.selectedFiles = new Set([
+      'claude.json\u0000auth-missing',
+      'claude.json\u0000auth-enabled',
+      'claude.json\u0000auth-disabled',
+    ]);
+    mocks.selectionCount = 3;
+
+    const renderer = await renderAccountsPage();
+
+    await act(async () => {
+      await findBatchMoreItem(renderer, 'claude-cloak-cache-fill-missing').onClick();
+    });
+
+    expect(mocks.batchPatchFields).toHaveBeenCalledWith(
+      [getAuthFilePatchTarget(missing)],
+      { cloak_cache_user_id: 'true' }
+    );
+  });
+
+  it('does not patch Claude credentials when every selected value is explicit', async () => {
+    const enabled = makeClaudeFile('claude.json', 'auth-enabled', 'enabled@example.com', {
+      cloak_cache_user_id: true,
+    });
+    const disabled = makeClaudeFile('claude.json', 'auth-disabled', 'disabled@example.com', {
+      cloak_cache_user_id: false,
+    });
+    mocks.files = [enabled, disabled];
+    mocks.selectedFiles = new Set([
+      'claude.json\u0000auth-enabled',
+      'claude.json\u0000auth-disabled',
+    ]);
+    mocks.selectionCount = 2;
+
+    const renderer = await renderAccountsPage();
+
+    await act(async () => {
+      await findBatchMoreItem(renderer, 'claude-cloak-cache-fill-missing').onClick();
+    });
+
+    expect(mocks.batchPatchFields).not.toHaveBeenCalled();
+    expect(mocks.showNotification).toHaveBeenCalledWith(
+      'auth_files.batch_claude_cloak_cache_no_missing',
+      'info'
+    );
   });
 
   it('disables batch delete for partial shared auth-file selections', async () => {
