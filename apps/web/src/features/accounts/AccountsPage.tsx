@@ -1113,6 +1113,8 @@ export function AccountsPage() {
   const [highlightedAccountSortIndex, setHighlightedAccountSortIndex] = useState(-1);
   const [batchPriorityOpen, setBatchPriorityOpen] = useState(false);
   const [batchPriorityValue, setBatchPriorityValue] = useState('');
+  const [batchLimitField, setBatchLimitField] = useState<'maxConcurrent' | 'rpm' | null>(null);
+  const [batchLimitValue, setBatchLimitValue] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => initialWorkspaceUrlState.current.pageSize);
   const [usageRows, setUsageRows] = useState<UsageValueRow[]>([]);
@@ -5966,6 +5968,49 @@ export function AccountsPage() {
     setIsSelectionMode(false);
   }, [batchPriorityValue, patchPriorityRows, selectedRows, showNotification, t]);
 
+  const patchLimitRows = useCallback(
+    async (targets: AccountRow[], field: 'maxConcurrent' | 'rpm', value: number | null) => {
+      const patchTargets = targets
+        .filter((row) => !row.runtimeOnly)
+        .map((row) => getAuthFilePatchTarget(row.raw));
+      if (patchTargets.length === 0) return;
+      await batchPatchFields(
+        patchTargets,
+        field === 'maxConcurrent' ? { max_concurrent: value } : { rpm: value }
+      );
+    },
+    [batchPatchFields]
+  );
+
+  const handleBatchLimitSave = useCallback(async () => {
+    if (!batchLimitField) return;
+    const trimmed = batchLimitValue.trim();
+    let value: number | null = null;
+    if (trimmed) {
+      if (!/^\d+$/.test(trimmed)) {
+        showNotification(t('auth_files.batch_limit_invalid'), 'error');
+        return;
+      }
+      const parsed = Number(trimmed);
+      if (!Number.isSafeInteger(parsed) || parsed < 1) {
+        showNotification(t('auth_files.batch_limit_invalid'), 'error');
+        return;
+      }
+      value = parsed;
+    }
+    await patchLimitRows(selectedRows, batchLimitField, value);
+    setBatchLimitField(null);
+    setBatchLimitValue('');
+    setIsSelectionMode(false);
+  }, [
+    batchLimitField,
+    batchLimitValue,
+    patchLimitRows,
+    selectedRows,
+    showNotification,
+    t,
+  ]);
+
   const patchWebsocketsRows = useCallback(
     async (targets: AccountRow[], websockets: boolean) => {
       const patchTargets = targets
@@ -6685,6 +6730,26 @@ export function AccountsPage() {
         icon: <IconShield size={15} />,
         onClick: () => void patchClaudeCloakCacheRows(selectedRows, false),
         disabled: disableControls || selectedClaudeRows.length === 0 || batchFieldsUpdating,
+      },
+      {
+        key: 'set-max-concurrent',
+        label: t('auth_files.batch_max_concurrent_button'),
+        icon: <IconSettings size={15} />,
+        onClick: () => {
+          setBatchLimitValue('');
+          setBatchLimitField('maxConcurrent');
+        },
+        disabled: disableControls || selectedRows.length === 0 || batchFieldsUpdating,
+      },
+      {
+        key: 'set-rpm',
+        label: t('auth_files.batch_rpm_button'),
+        icon: <IconSettings size={15} />,
+        onClick: () => {
+          setBatchLimitValue('');
+          setBatchLimitField('rpm');
+        },
+        disabled: disableControls || selectedRows.length === 0 || batchFieldsUpdating,
       },
       { key: 'batch-more-divider', type: 'divider' },
       {
@@ -7993,6 +8058,63 @@ export function AccountsPage() {
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || disableControls || batchFieldsUpdating) return;
               void handleBatchPrioritySave();
+            }}
+          />
+        </div>
+      </Modal>
+      <Modal
+        open={batchLimitField !== null}
+        onClose={() => {
+          if (!batchFieldsUpdating) setBatchLimitField(null);
+        }}
+        closeDisabled={batchFieldsUpdating}
+        title={
+          batchLimitField === 'maxConcurrent'
+            ? t('auth_files.batch_max_concurrent_title')
+            : t('auth_files.batch_rpm_title')
+        }
+        width={420}
+        footer={
+          <div className={styles.batchPriorityFooter}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setBatchLimitField(null)}
+              disabled={batchFieldsUpdating}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void handleBatchLimitSave()}
+              disabled={disableControls || selectedRows.length === 0 || batchFieldsUpdating}
+              loading={batchFieldsUpdating}
+            >
+              {t('common.confirm')}
+            </Button>
+          </div>
+        }
+      >
+        <div className={styles.batchPriorityModal}>
+          <Input
+            label={
+              batchLimitField === 'maxConcurrent'
+                ? t('accounts.config_max_concurrent_label')
+                : t('accounts.config_rpm_label')
+            }
+            type="number"
+            min="1"
+            step="1"
+            placeholder={t('auth_files.batch_limit_placeholder')}
+            hint={t('auth_files.batch_limit_hint')}
+            value={batchLimitValue}
+            onChange={(event) => setBatchLimitValue(event.target.value)}
+            disabled={disableControls || batchFieldsUpdating}
+            inputMode="numeric"
+            autoFocus
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || disableControls || batchFieldsUpdating) return;
+              void handleBatchLimitSave();
             }}
           />
         </div>

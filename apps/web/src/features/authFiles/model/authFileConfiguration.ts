@@ -52,6 +52,8 @@ export type AuthFileConfigurationDraft = {
   excludedModelsText: string;
   disableCooling: CoolingPolicy;
   requestRetry: string;
+  maxConcurrent: string;
+  rpm: string;
   websockets: boolean;
   xaiRoutingMode: XaiRoutingMode;
   baseUrl: string;
@@ -70,6 +72,8 @@ export type AuthFileConfigurationErrorKey =
   | 'accounts.config_error_weight_integer'
   | 'accounts.config_error_weight_range'
   | 'accounts.config_error_request_retry_integer'
+  | 'accounts.config_error_max_concurrent_integer'
+  | 'accounts.config_error_rpm_integer'
   | 'accounts.config_error_xai_base_url'
   | 'accounts.config_error_cloak_mode';
 
@@ -367,6 +371,10 @@ export const buildAuthFileConfigurationDraft = (
     requestRetry: readIntegerText(
       record.request_retry ?? record['request-retry'] ?? record.requestRetry
     ),
+    maxConcurrent: readIntegerText(
+      record.max_concurrent ?? record['max-concurrent'] ?? record.maxConcurrent
+    ),
+    rpm: readIntegerText(record.rpm),
     websockets: readAuthFileWebsockets(record),
     xaiRoutingMode: usingApi ? 'official-api' : 'grok-build',
     baseUrl:
@@ -407,6 +415,8 @@ type AuthFileLegacyAlias =
   | 'disable-cooling'
   | 'request-retry'
   | 'requestRetry'
+  | 'max-concurrent'
+  | 'maxConcurrent'
   | 'cloakMode'
   | 'cloak-mode'
   | 'cloakStrictMode'
@@ -518,6 +528,38 @@ export const buildAuthFileConfigurationPatch = (
       } else {
         patch.request_retry = value;
         tombstoneLegacyAliases(patch, record, ['request-retry', 'requestRetry']);
+      }
+    }
+  }
+
+  // An empty field clears the limit (unlimited). A value must be at least 1,
+  // since 0 would be an unlimited gate expressed as a limit.
+  if (draft.maxConcurrent.trim() !== originalDraft.maxConcurrent.trim()) {
+    const trimmed = draft.maxConcurrent.trim();
+    if (!trimmed) {
+      patch.max_concurrent = null;
+      tombstoneLegacyAliases(patch, record, ['max-concurrent', 'maxConcurrent']);
+    } else {
+      const value = parseInteger(trimmed);
+      if (value === null || value < 1) {
+        errors.maxConcurrent = 'accounts.config_error_max_concurrent_integer';
+      } else {
+        patch.max_concurrent = value;
+        tombstoneLegacyAliases(patch, record, ['max-concurrent', 'maxConcurrent']);
+      }
+    }
+  }
+
+  if (draft.rpm.trim() !== originalDraft.rpm.trim()) {
+    const trimmed = draft.rpm.trim();
+    if (!trimmed) {
+      patch.rpm = null;
+    } else {
+      const value = parseInteger(trimmed);
+      if (value === null || value < 1) {
+        errors.rpm = 'accounts.config_error_rpm_integer';
+      } else {
+        patch.rpm = value;
       }
     }
   }

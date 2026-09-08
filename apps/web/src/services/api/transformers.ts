@@ -159,6 +159,19 @@ const normalizePrefix = (value: unknown): string | undefined => {
   return trimmed ? trimmed : undefined;
 };
 
+// normalizeCredentialLimit reads a per-credential concurrency or RPM cap. CPA
+// treats a non-positive value as "no cap", which is also how an absent key is
+// interpreted, so both collapse to undefined here.
+const normalizeCredentialLimit = (value: unknown): number | undefined => {
+  if (value === undefined || value === null) return undefined;
+  const raw = String(value).trim();
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return undefined;
+  const truncated = Math.trunc(parsed);
+  return truncated > 0 ? truncated : undefined;
+};
+
 const normalizeAuthIndex = (value: unknown): string | undefined => {
   if (value === undefined || value === null) return undefined;
   const trimmed = String(value).trim();
@@ -240,6 +253,12 @@ const normalizeProviderKeyConfig = (item: unknown): ProviderKeyConfig | null => 
   if (rebuildMidSystemMessage !== undefined) {
     config.rebuildMidSystemMessage = rebuildMidSystemMessage;
   }
+  const maxConcurrent = normalizeCredentialLimit(
+    record?.['max-concurrent'] ?? record?.maxConcurrent ?? record?.max_concurrent
+  );
+  if (maxConcurrent !== undefined) config.maxConcurrent = maxConcurrent;
+  const rpm = normalizeCredentialLimit(record?.rpm);
+  if (rpm !== undefined) config.rpm = rpm;
   if (proxyUrl) config.proxyUrl = String(proxyUrl);
   const headers = normalizeHeaders(record?.headers);
   if (headers) config.headers = headers;

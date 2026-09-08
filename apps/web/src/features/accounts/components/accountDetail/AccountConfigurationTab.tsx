@@ -213,6 +213,28 @@ export function AccountConfigurationTab({
             disabled={disabled}
             onChange={(event) => editor.updateField('weight', event.target.value)}
           />
+          <Input
+            label={t('accounts.config_max_concurrent_label')}
+            type="number"
+            min="1"
+            step="1"
+            value={draft.maxConcurrent}
+            error={fieldError('maxConcurrent')}
+            hint={t('accounts.config_max_concurrent_hint')}
+            disabled={disabled}
+            onChange={(event) => editor.updateField('maxConcurrent', event.target.value)}
+          />
+          <Input
+            label={t('accounts.config_rpm_label')}
+            type="number"
+            min="1"
+            step="1"
+            value={draft.rpm}
+            error={fieldError('rpm')}
+            hint={t('accounts.config_rpm_hint')}
+            disabled={disabled}
+            onChange={(event) => editor.updateField('rpm', event.target.value)}
+          />
           <div className={styles.configurationFieldFull}>
             <Input
               label={t('auth_files.note_label')}

@@ -177,6 +177,20 @@ func TestNormalizeRawPreservesRequestedModelWhileCanonicalizingReasoningSuffix(t
 	}
 }
 
+func TestNormalizeRawPreservesRawInputAndCacheUsageSource(t *testing.T) {
+	event, err := NormalizeRaw([]byte(`{
+		"timestamp":"2026-08-12T00:00:00Z",
+		"cache_usage_source":"upstream",
+		"tokens":{"input_tokens":100,"raw_input_tokens":1000,"cache_read_tokens":20}
+	}`))
+	if err != nil {
+		t.Fatalf("NormalizeRaw: %v", err)
+	}
+	if event.InputTokens != 100 || event.RawInputTokens != 1000 || event.CacheUsageSource != "upstream" {
+		t.Fatalf("event tokens/source = input:%d raw:%d source:%q", event.InputTokens, event.RawInputTokens, event.CacheUsageSource)
+	}
+}
+
 func TestCacheHitRateFromTotalsClampsMalformedData(t *testing.T) {
 	if got := CacheHitRateFromTotals(1_500, 1_000); got != 1 {
 		t.Fatalf("cache hit rate = %v, want 1", got)

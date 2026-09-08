@@ -74,6 +74,10 @@ export interface ProviderKeyConfig {
    */
   experimentalCchSigning?: boolean;
   rebuildMidSystemMessage?: boolean;
+  /** Caps in-flight requests for this credential; omit for unlimited. */
+  maxConcurrent?: number;
+  /** Caps requests started per trailing 60s window; omit for unlimited. */
+  rpm?: number;
 }
 
 export interface OpenAIProviderConfig {

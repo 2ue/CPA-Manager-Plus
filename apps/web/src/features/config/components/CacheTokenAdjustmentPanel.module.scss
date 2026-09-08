@@ -1,0 +1,97 @@
+.panel {
+  display: grid;
+  gap: 18px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.header,
+.ruleHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header h2,
+.ruleHeader h3 {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.header h2 {
+  font-size: 19px;
+}
+
+.ruleHeader h3 {
+  font-size: 15px;
+}
+
+.header p,
+.ruleHeader p {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.validation {
+  color: var(--danger-color);
+}
+
+.limit {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--warning-color) 45%, var(--border-color));
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.rules {
+  display: grid;
+  gap: 14px;
+}
+
+.rule {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field > label,
+.grid :global(.form-group > label),
+.switchLabel {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .header,
+  .ruleHeader {
+    flex-direction: column;
+  }
+
+  .limit {
+    white-space: normal;
+  }
+}

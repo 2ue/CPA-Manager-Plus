@@ -40,6 +40,7 @@ import {
   useUsageServiceStore,
 } from '@/stores';
 import { configFileApi } from '@/services/api/configFile';
+import { hasCacheTokenAdjustmentValidationErrors } from '@/utils/cacheTokenAdjustment';
 import { apiKeysApi } from '@/services/api/apiKeys';
 import {
   getUsageServiceErrorCode,
@@ -52,9 +53,10 @@ import {
 } from '@/services/api/usageService';
 import { detectApiBaseFromLocation } from '@/utils/connection';
 import { ManagerConfigPanel } from './components/ManagerConfigPanel';
+import { CacheTokenAdjustmentPanel } from './components/CacheTokenAdjustmentPanel';
 import styles from './ConfigPage.module.scss';
 
-type ConfigEditorTab = 'visual' | 'source' | 'manager';
+type ConfigEditorTab = 'visual' | 'cache' | 'source' | 'manager';
 type ConfigPreviewTab = 'visual' | 'source';
 export type ManagerBindingStatus = 'unknown' | 'unconfigured' | 'matched';
 
@@ -360,9 +362,13 @@ export function ConfigPage() {
     commitApiKeysText,
   } = useVisualConfig();
 
+  const cacheTokenAdjustmentInvalid = hasCacheTokenAdjustmentValidationErrors(
+    visualValues.cacheTokenAdjustment
+  );
+
   const [activeTab, setActiveTab] = useState<ConfigEditorTab>(() => {
     const saved = localStorage.getItem(CONFIG_TAB_STORAGE_KEY);
-    if (saved === 'visual' || saved === 'source' || saved === 'manager') {
+    if (saved === 'visual' || saved === 'cache' || saved === 'source' || saved === 'manager') {
       return saved;
     }
     return 'visual';
@@ -431,7 +437,7 @@ export function ConfigPage() {
   const shouldRenderFloatingActions = isCurrentLayer;
   const hasVisualModeError = !!visualParseError;
   const hasVisualValidationErrors =
-    activeTab === 'visual' &&
+    (activeTab === 'visual' || activeTab === 'cache') &&
     (Object.values(visualValidationErrors).some(Boolean) || visualHasPayloadValidationErrors);
   const managerRetentionSeconds =
     managerCPAUsage?.redisUsageQueueRetentionSeconds ||
@@ -441,11 +447,7 @@ export function ConfigPage() {
   const authFilesData = useAuthFilesData({
     connectionFingerprint: detectedPanelBase,
   });
-  const {
-    batchFieldsUpdating,
-    batchPatchFields,
-    loadFiles,
-  } = authFilesData;
+  const { batchFieldsUpdating, batchPatchFields, loadFiles } = authFilesData;
   const managerCollectorModeOptions = useMemo(
     () => [
       { value: 'auto', label: t('config_management.manager.collector_mode_auto') },
@@ -873,7 +875,7 @@ export function ConfigPage() {
   );
 
   useEffect(() => {
-    if (activeTab !== 'visual' || !visualParseError) return;
+    if ((activeTab !== 'visual' && activeTab !== 'cache') || !visualParseError) return;
 
     setActiveTab('source');
     localStorage.setItem(CONFIG_TAB_STORAGE_KEY, 'source');
@@ -922,14 +924,7 @@ export function ConfigPage() {
         'error'
       );
     }
-  }, [
-    batchFieldsUpdating,
-    batchPatchFields,
-    disableControls,
-    loadFiles,
-    showNotification,
-    t,
-  ]);
+  }, [batchFieldsUpdating, batchPatchFields, disableControls, loadFiles, showNotification, t]);
 
   const handleConfirmSave = async () => {
     if (
@@ -1198,8 +1193,13 @@ export function ConfigPage() {
       return;
     }
 
-    if (activeTab === 'visual' && visualParseError) {
+    if ((activeTab === 'visual' || activeTab === 'cache') && visualParseError) {
       showNotification(t('config_management.visual_mode_save_blocked'), 'error');
+      return;
+    }
+
+    if (activeTab === 'cache' && cacheTokenAdjustmentInvalid) {
+      showNotification(t('config_management.cache_adjustment.validation_blocked'), 'error');
       return;
     }
 
@@ -1335,7 +1335,7 @@ export function ConfigPage() {
             setDirty(true);
           }
         }
-      } else if (activeTab !== 'visual') {
+      } else if (activeTab !== 'visual' && activeTab !== 'cache') {
         const result = loadVisualValuesFromYaml(content);
         if (!result.ok) {
           showNotification(
@@ -1664,6 +1664,11 @@ export function ConfigPage() {
         disabled: saving || loading || managerSaving || apiKeyMutationInFlight,
       },
       {
+        id: 'cache',
+        label: t('config_management.tabs.cache'),
+        disabled: saving || loading || managerSaving || apiKeyMutationInFlight,
+      },
+      {
         id: 'source',
         label: t('config_management.tabs.source'),
         disabled: saving || loading || managerSaving || apiKeyMutationInFlight,
@@ -1782,6 +1787,19 @@ export function ConfigPage() {
                 claudeStableUserIdDisabled={disableControls || batchFieldsUpdating}
               />
             </>
+          ) : activeTab === 'cache' ? (
+            <CacheTokenAdjustmentPanel
+              value={visualValues.cacheTokenAdjustment}
+              disabled={
+                disableControls ||
+                loading ||
+                saving ||
+                managerSaving ||
+                diffModalOpen ||
+                apiKeyMutationInFlight
+              }
+              onChange={(cacheTokenAdjustment) => setVisualValues({ cacheTokenAdjustment })}
+            />
           ) : (
             <div className={styles.sourceWorkspace}>
               <div className={styles.sourceToolbar}>

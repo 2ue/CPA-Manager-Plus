@@ -1367,7 +1367,28 @@
   color: var(--monitor-ink);
 }
 
+.realtimeUsageHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--monitor-muted);
+}
+
+.realtimeUsageHeader svg {
+  opacity: 0.7;
+}
+
 .realtimeUsageFlow {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  column-gap: 8px;
+  color: var(--monitor-muted);
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.realtimeUsageCacheFlow {
   display: grid;
   grid-template-columns: max-content max-content;
   column-gap: 8px;
@@ -1381,6 +1402,32 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
+}
+
+.realtimeUsageInputIcon,
+.realtimeUsageOutputIcon,
+.realtimeUsageCacheReadIcon,
+.realtimeUsageCacheWriteIcon {
+  display: inline-flex;
+  width: 12px;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.realtimeUsageInputIcon {
+  color: var(--monitor-accent);
+}
+
+.realtimeUsageOutputIcon {
+  color: var(--monitor-success, #2f9e68);
+}
+
+.realtimeUsageCacheReadIcon {
+  color: var(--monitor-warning, #b7791f);
+}
+
+.realtimeUsageCacheWriteIcon {
+  color: var(--monitor-info, #377dba);
 }
 
 .realtimeUsageTooltip {

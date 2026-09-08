@@ -4,7 +4,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const repositoryUrl = 'https://github.com/seakee/CPA-Manager-Plus';
+const repositoryUrl = process.env.GITHUB_REPOSITORY
+  ? `https://github.com/${process.env.GITHUB_REPOSITORY}`
+  : 'https://github.com/seakee/CPA-Manager-Plus';
 const maximumTelegramCharacters = 3500;
 const prereleaseIdentifier = String.raw`(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)`;
 const releaseTagPattern = new RegExp(

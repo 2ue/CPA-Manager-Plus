@@ -65,6 +65,10 @@ export type AuthFileFieldsPatch = {
   request_retry?: number | null;
   'request-retry'?: null;
   requestRetry?: null;
+  max_concurrent?: number | null;
+  'max-concurrent'?: null;
+  maxConcurrent?: null;
+  rpm?: number | null;
   cloak_mode?: string;
   cloakMode?: null;
   'cloak-mode'?: null;
@@ -742,6 +746,28 @@ export const applyAuthFileFieldsPatchToRecord = (
   }
   if (fields['request-retry'] === null) delete next['request-retry'];
   if (fields.requestRetry === null) delete next.requestRetry;
+
+  // Clearing a limit removes the key entirely rather than writing 0, so the
+  // credential falls back to unlimited instead of carrying a disabled gate.
+  if (fields.max_concurrent !== undefined) {
+    if (fields.max_concurrent === null) {
+      delete next.max_concurrent;
+    } else {
+      next.max_concurrent = fields.max_concurrent;
+    }
+    delete next['max-concurrent'];
+    delete next.maxConcurrent;
+  }
+  if (fields['max-concurrent'] === null) delete next['max-concurrent'];
+  if (fields.maxConcurrent === null) delete next.maxConcurrent;
+
+  if (fields.rpm !== undefined) {
+    if (fields.rpm === null) {
+      delete next.rpm;
+    } else {
+      next.rpm = fields.rpm;
+    }
+  }
 
   applyTrimmedString('cloak_mode', fields.cloak_mode);
   if (fields.cloakMode === null) delete next.cloakMode;

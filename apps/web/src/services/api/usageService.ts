@@ -1836,11 +1836,13 @@ export interface MonitoringAnalyticsEventRow {
   reasoning_effort?: string;
   service_tier?: string;
   executor_type?: string;
+  raw_input_tokens?: number;
   input_tokens: number;
   output_tokens: number;
   cached_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
+  cache_usage_source?: 'none' | 'upstream' | 'estimated' | 'mixed' | string;
   reasoning_tokens: number;
   total_tokens: number;
   latency_ms: number | null;

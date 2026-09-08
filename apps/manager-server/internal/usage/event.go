@@ -60,6 +60,8 @@ type Event struct {
 	CacheTokens         int64  `json:"cache_tokens"`
 	CacheReadTokens     int64  `json:"cache_read_tokens"`
 	CacheCreationTokens int64  `json:"cache_creation_tokens"`
+	CacheUsageSource    string `json:"cache_usage_source,omitempty"`
+	RawInputTokens      int64  `json:"-"`
 	// Normalized token buckets are persisted for aggregation and billing but are
 	// not exposed in compatible usage payloads.
 	NormalizedUncachedInputTokens int64  `json:"-"`
@@ -89,6 +91,7 @@ type Event struct {
 
 type Tokens struct {
 	InputTokens         int64 `json:"input_tokens"`
+	RawInputTokens      int64 `json:"raw_input_tokens,omitempty"`
 	OutputTokens        int64 `json:"output_tokens"`
 	ReasoningTokens     int64 `json:"reasoning_tokens"`
 	CachedTokens        int64 `json:"cached_tokens"`
@@ -149,6 +152,7 @@ type Detail struct {
 	RequestServiceTier    string                  `json:"request_service_tier,omitempty"`
 	ResponseServiceTier   string                  `json:"response_service_tier,omitempty"`
 	CacheInputMode        string                  `json:"cache_input_mode,omitempty"`
+	CacheUsageSource      string                  `json:"cache_usage_source,omitempty"`
 	ExecutorType          string                  `json:"executor_type,omitempty"`
 	Tokens                Tokens                  `json:"tokens"`
 	Failed                bool                    `json:"failed"`
@@ -533,6 +537,8 @@ func NormalizeRaw(raw []byte) (Event, error) {
 	}
 
 	inputTokens, outputTokens, reasoningTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens, totalTokens := readTokenFields(record)
+	rawInputTokens := readNestedThenTopInt(record, []string{"raw_input_tokens", "rawInputTokens", "original_input_tokens", "originalInputTokens"})
+	cacheUsageSource := readString(record, "cache_usage_source", "cacheUsageSource")
 
 	latencyMS := readOptionalInt(record, "latency_ms", "latencyMs", "duration_ms", "durationMs", "elapsed_ms", "elapsedMs")
 	ttftMS := readOptionalInt(record, "ttft_ms", "ttftMs", "time_to_first_token_ms", "timeToFirstTokenMs")
@@ -616,6 +622,8 @@ func NormalizeRaw(raw []byte) (Event, error) {
 		CacheTokens:                   cacheTokens,
 		CacheReadTokens:               cacheReadTokens,
 		CacheCreationTokens:           cacheCreationTokens,
+		CacheUsageSource:              cacheUsageSource,
+		RawInputTokens:                rawInputTokens,
 		NormalizedUncachedInputTokens: cacheAccounting.UncachedInputTokens,
 		NormalizedTotalInputTokens:    cacheAccounting.TotalInputTokens,
 		NormalizedCacheReadTokens:     cacheAccounting.CacheReadTokens,
@@ -700,6 +708,7 @@ func BuildPayload(events []Event) Payload {
 			RequestServiceTier:    event.RequestServiceTier,
 			ResponseServiceTier:   event.ResponseServiceTier,
 			CacheInputMode:        event.CacheInputMode,
+			CacheUsageSource:      event.CacheUsageSource,
 			ExecutorType:          event.ExecutorType,
 			Failed:                event.Failed,
 			FailStatusCode:        event.FailStatusCode,
@@ -707,6 +716,7 @@ func BuildPayload(events []Event) Payload {
 			ResponseMetadata:      event.ResponseMetadata,
 			Tokens: Tokens{
 				InputTokens:         event.InputTokens,
+				RawInputTokens:      event.RawInputTokens,
 				OutputTokens:        event.OutputTokens,
 				ReasoningTokens:     event.ReasoningTokens,
 				CachedTokens:        compatCachedTokens,

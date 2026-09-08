@@ -1,5 +1,5 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
-import { isValidElement, StrictMode } from 'react';
+import { isValidElement, StrictMode, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Button } from '@/components/ui/Button';
 import { Drawer } from '@/components/ui/Drawer';
@@ -655,6 +655,8 @@ vi.mock('@/features/authFiles/hooks/useAuthFileConfigurationEditor', () => ({
       excludedModelsText: '',
       disableCooling: 'inherit' as const,
       requestRetry: '',
+      maxConcurrent: '',
+      rpm: '',
       websockets: false,
       xaiRoutingMode: 'grok-build' as const,
       baseUrl: '',
@@ -723,6 +725,26 @@ vi.mock('@/features/monitoring/codexInspection', () => ({
 
 vi.mock('@/features/authFiles/components/AuthJsonPasteModal', () => ({
   AuthJsonPasteModal: () => null,
+}));
+
+vi.mock('@/components/ui/Modal', () => ({
+  Modal: ({
+    open,
+    title,
+    footer,
+    children,
+  }: {
+    open: boolean;
+    title?: ReactNode;
+    footer?: ReactNode;
+    children?: ReactNode;
+  }) =>
+    open ? (
+      <div data-mock-modal-title={typeof title === 'string' ? title : undefined}>
+        <div>{children}</div>
+        <div>{footer}</div>
+      </div>
+    ) : null,
 }));
 
 vi.mock('@/features/authFiles/components/OAuthExcludedCard', () => ({
@@ -3868,6 +3890,51 @@ describe('AccountsPage replacement flows', () => {
 
     expect(mocks.batchPatchFields).toHaveBeenCalledWith([getAuthFilePatchTarget(mocks.files[0])], {
       websockets: true,
+    });
+  });
+
+  it('opens batch max-concurrency and RPM editors and patches the selected credentials', async () => {
+    mocks.selectedFiles = new Set(['codex.json\u0000auth-1']);
+    mocks.selectionCount = 1;
+    const renderer = await renderAccountsPage();
+
+    await act(async () => {
+      findBatchMoreItem(renderer, 'set-max-concurrent').onClick();
+    });
+    let inputs = renderer.root.findAllByType(Input);
+    const concurrencyInput = inputs.find(
+      (input) => input.props.label === 'accounts.config_max_concurrent_label'
+    );
+    expect(concurrencyInput).toBeTruthy();
+    act(() => concurrencyInput?.props.onChange({ target: { value: '8' } }));
+    const concurrencyConfirm = renderer.root
+      .findAllByType('button')
+      .find((button) => readText(button).includes('common.confirm'));
+    if (!concurrencyConfirm) throw new Error('batch concurrency confirm button missing');
+    await act(async () => {
+      await concurrencyConfirm.props.onClick();
+    });
+    expect(mocks.batchPatchFields).toHaveBeenCalledWith([getAuthFilePatchTarget(mocks.files[0])], {
+      max_concurrent: 8,
+    });
+
+    mocks.batchPatchFields.mockClear();
+    await act(async () => {
+      findBatchMoreItem(renderer, 'set-rpm').onClick();
+    });
+    inputs = renderer.root.findAllByType(Input);
+    const rpmInput = inputs.find((input) => input.props.label === 'accounts.config_rpm_label');
+    expect(rpmInput).toBeTruthy();
+    act(() => rpmInput?.props.onChange({ target: { value: '120' } }));
+    const rpmConfirm = renderer.root
+      .findAllByType('button')
+      .find((button) => readText(button).includes('common.confirm'));
+    if (!rpmConfirm) throw new Error('batch RPM confirm button missing');
+    await act(async () => {
+      await rpmConfirm.props.onClick();
+    });
+    expect(mocks.batchPatchFields).toHaveBeenCalledWith([getAuthFilePatchTarget(mocks.files[0])], {
+      rpm: 120,
     });
   });
 

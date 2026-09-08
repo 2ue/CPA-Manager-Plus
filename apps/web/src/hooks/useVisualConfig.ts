@@ -7,6 +7,9 @@ import type {
   PluginStoreAuthType,
   VisualConfigValues,
   VisualConfigValidationErrors,
+  CacheAdjustmentTrigger,
+  CacheTokenAdjustmentConfig,
+  CacheTokenAdjustmentRule,
 } from '@/types/visualConfig';
 import { DEFAULT_VISUAL_VALUES } from '@/types/visualConfig';
 import { normalizeRoutingStrategy } from '@/utils/routingStrategy';
@@ -343,6 +346,123 @@ function parseDisableImageGenerationMode(raw: unknown): DisableImageGenerationMo
   return 'false';
 }
 
+const EMPTY_CACHE_ADJUSTMENT_RULE: CacheTokenAdjustmentRule = {
+  enabled: false,
+  trigger: '',
+  triggerMin: '',
+  triggerMax: '',
+  multiplier: '',
+  maxTokens: '',
+  clipMinTokens: '',
+  clipMaxTokens: '',
+};
+
+function parseCacheAdjustmentRule(raw: unknown): CacheTokenAdjustmentRule {
+  const record = asRecord(raw);
+  if (!record) return { ...EMPTY_CACHE_ADJUSTMENT_RULE };
+  const trigger = String(record.trigger ?? '')
+    .trim()
+    .toLowerCase();
+  const hasExplicitEnabled =
+    typeof record.enabled === 'boolean' || typeof record['enabled'] === 'boolean';
+  const hasRuleValues = trigger !== '';
+  return {
+    enabled: hasExplicitEnabled
+      ? Boolean(record.enabled ?? record['enabled'])
+      : hasRuleValues,
+    trigger: ['range', 'greater-than', 'less-than'].includes(trigger)
+      ? (trigger as CacheAdjustmentTrigger)
+      : '',
+    triggerMin: String(record['trigger-min'] ?? record.triggerMin ?? ''),
+    triggerMax: String(record['trigger-max'] ?? record.triggerMax ?? ''),
+    multiplier: String(record.multiplier ?? ''),
+    maxTokens: String(record['max-tokens'] ?? record.maxTokens ?? ''),
+    clipMinTokens: String(record['clip-min-tokens'] ?? record.clipMinTokens ?? ''),
+    clipMaxTokens: String(record['clip-max-tokens'] ?? record.clipMaxTokens ?? ''),
+  };
+}
+
+function parseCacheTokenAdjustment(raw: unknown): CacheTokenAdjustmentConfig {
+  const record = asRecord(raw);
+  const input = asRecord(record?.input);
+  const output = asRecord(record?.output);
+  const inputHasValues =
+    input?.['max-tokens'] !== undefined ||
+    input?.maxTokens !== undefined ||
+    input?.['jitter-ratio'] !== undefined ||
+    input?.jitterRatio !== undefined;
+  const inputHasExplicitEnabled =
+    typeof input?.enabled === 'boolean' || typeof input?.['enabled'] === 'boolean';
+  return {
+    input: {
+      enabled: inputHasExplicitEnabled
+        ? Boolean(input?.enabled ?? input?.['enabled'])
+        : inputHasValues,
+      maxTokens: String(input?.['max-tokens'] ?? input?.maxTokens ?? ''),
+      jitterRatio: String(input?.['jitter-ratio'] ?? input?.jitterRatio ?? ''),
+    },
+    read: parseCacheAdjustmentRule(record?.read),
+    write: parseCacheAdjustmentRule(record?.write),
+    output: parseCacheAdjustmentRule(output),
+  };
+}
+
+function serializeCacheAdjustmentRule(rule: CacheTokenAdjustmentRule): Record<string, unknown> {
+  const output: Record<string, unknown> = {};
+  if (!rule.enabled) return output;
+  output.enabled = true;
+  if (rule.trigger) output.trigger = rule.trigger;
+  const integerFields: Array<[keyof CacheTokenAdjustmentRule, string]> = [
+    ['triggerMin', 'trigger-min'],
+    ['triggerMax', 'trigger-max'],
+    ['maxTokens', 'max-tokens'],
+    ['clipMinTokens', 'clip-min-tokens'],
+    ['clipMaxTokens', 'clip-max-tokens'],
+  ];
+  for (const [field, key] of integerFields) {
+    const value = String(rule[field]).trim();
+    if (/^\d+$/.test(value)) output[key] = Number(value);
+  }
+  const multiplier = rule.multiplier.trim();
+  if (multiplier && Number.isFinite(Number(multiplier)) && Number(multiplier) > 0) {
+    output.multiplier = Number(multiplier);
+  }
+  return output;
+}
+
+function areCacheAdjustmentRulesEqual(
+  left: CacheTokenAdjustmentRule,
+  right: CacheTokenAdjustmentRule
+): boolean {
+  return (
+    left.enabled === right.enabled &&
+    left.trigger === right.trigger &&
+    left.triggerMin === right.triggerMin &&
+    left.triggerMax === right.triggerMax &&
+    left.multiplier === right.multiplier &&
+    left.maxTokens === right.maxTokens &&
+    left.clipMinTokens === right.clipMinTokens &&
+    left.clipMaxTokens === right.clipMaxTokens
+  );
+}
+
+function areCacheTokenAdjustmentsEqual(
+  left: CacheTokenAdjustmentConfig,
+  right: CacheTokenAdjustmentConfig
+): boolean {
+  return (
+    left.input.enabled === right.input.enabled &&
+    left.input.maxTokens === right.input.maxTokens &&
+    left.input.jitterRatio === right.input.jitterRatio &&
+    areCacheAdjustmentRulesEqual(left.read, right.read) &&
+    areCacheAdjustmentRulesEqual(left.write, right.write) &&
+    left.output.enabled === right.output.enabled &&
+    areCacheAdjustmentRulesEqual(left.output, right.output)
+  );
+}
+
+export { hasCacheTokenAdjustmentValidationErrors } from '@/utils/cacheTokenAdjustment';
+
 const CLAUDE_TRANSPORT_OS_VALUES = [
   'MacOS',
   'Windows',
@@ -357,9 +477,7 @@ const CLAUDE_TRANSPORT_ARCH_VALUES = ['arm64', 'x64', 'x32', 'arm'] as const;
 function getClaudeOsError(value: string): 'claude_os' | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
-  return CLAUDE_TRANSPORT_OS_VALUES.includes(
-    trimmed as (typeof CLAUDE_TRANSPORT_OS_VALUES)[number]
-  )
+  return CLAUDE_TRANSPORT_OS_VALUES.includes(trimmed as (typeof CLAUDE_TRANSPORT_OS_VALUES)[number])
     ? undefined
     : 'claude_os';
 }
@@ -460,6 +578,28 @@ function mergeVisualConfigValues(
   if (patch.streaming) {
     nextValues.streaming = { ...currentValues.streaming, ...patch.streaming };
   }
+  if (patch.cacheTokenAdjustment) {
+    nextValues.cacheTokenAdjustment = {
+      ...currentValues.cacheTokenAdjustment,
+      ...patch.cacheTokenAdjustment,
+      read: {
+        ...currentValues.cacheTokenAdjustment.read,
+        ...patch.cacheTokenAdjustment.read,
+      },
+      write: {
+        ...currentValues.cacheTokenAdjustment.write,
+        ...patch.cacheTokenAdjustment.write,
+      },
+      input: {
+        ...currentValues.cacheTokenAdjustment.input,
+        ...patch.cacheTokenAdjustment.input,
+      },
+      output: {
+        ...currentValues.cacheTokenAdjustment.output,
+        ...patch.cacheTokenAdjustment.output,
+      },
+    };
+  }
   return nextValues;
 }
 
@@ -521,6 +661,16 @@ function getNextDirtyFields(
     updateDirty(
       'pluginStoreAuth',
       arePluginStoreAuthRulesEqual(nextValues.pluginStoreAuth, baselineValues.pluginStoreAuth)
+    );
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'cacheTokenAdjustment')) {
+    updateDirty(
+      'cacheTokenAdjustment',
+      areCacheTokenAdjustmentsEqual(
+        nextValues.cacheTokenAdjustment,
+        baselineValues.cacheTokenAdjustment
+      )
     );
   }
 
@@ -813,6 +963,7 @@ export function useVisualConfig() {
       const plugins = asRecord(parsed.plugins);
       const payload = asRecord(parsed.payload);
       const streaming = asRecord(parsed.streaming);
+      const cacheTokenAdjustment = parseCacheTokenAdjustment(parsed['cache-token-adjustment']);
       const claudeHeaderDefaults = asRecord(parsed['claude-header-defaults']);
       const codexHeaderDefaults = asRecord(parsed['codex-header-defaults']);
       const codex = asRecord(parsed.codex);
@@ -909,9 +1060,7 @@ export function useVisualConfig() {
         claudeHeaderTimeout:
           typeof claudeHeaderDefaults?.timeout === 'string' ? claudeHeaderDefaults.timeout : '',
         claudeHeaderTimezone:
-          typeof claudeHeaderDefaults?.timezone === 'string'
-            ? claudeHeaderDefaults.timezone
-            : '',
+          typeof claudeHeaderDefaults?.timezone === 'string' ? claudeHeaderDefaults.timezone : '',
         claudeHeaderStabilizeDeviceProfile: Boolean(
           claudeHeaderDefaults?.['stabilize-device-profile']
         ),
@@ -953,6 +1102,7 @@ export function useVisualConfig() {
           bootstrapRetries: String(streaming?.['bootstrap-retries'] ?? ''),
           nonstreamKeepaliveInterval: String(parsed['nonstream-keepalive-interval'] ?? ''),
         },
+        cacheTokenAdjustment,
       };
 
       dispatch({ type: 'load_success', values: newValues });
@@ -1139,14 +1289,16 @@ export function useVisualConfig() {
         if (isDirty('passthroughHeaders')) {
           setBooleanInDoc(doc, ['passthrough-headers'], values.passthroughHeaders);
         }
-        if (isDirty('requestRetry')) setIntFromStringInDoc(doc, ['request-retry'], values.requestRetry);
+        if (isDirty('requestRetry'))
+          setIntFromStringInDoc(doc, ['request-retry'], values.requestRetry);
         if (isDirty('maxRetryCredentials')) {
           setIntFromStringInDoc(doc, ['max-retry-credentials'], values.maxRetryCredentials);
         }
         if (isDirty('maxRetryInterval')) {
           setIntFromStringInDoc(doc, ['max-retry-interval'], values.maxRetryInterval);
         }
-        if (isDirty('disableCooling')) setBooleanInDoc(doc, ['disable-cooling'], values.disableCooling);
+        if (isDirty('disableCooling'))
+          setBooleanInDoc(doc, ['disable-cooling'], values.disableCooling);
         if (isDirty('saveCooldownStatus')) {
           setBooleanInDoc(doc, ['save-cooldown-status'], values.saveCooldownStatus);
         }
@@ -1235,7 +1387,11 @@ export function useVisualConfig() {
             setStringInDoc(doc, ['claude-header-defaults', 'timeout'], values.claudeHeaderTimeout);
           }
           if (isDirty('claudeHeaderTimezone')) {
-            setStringInDoc(doc, ['claude-header-defaults', 'timezone'], values.claudeHeaderTimezone);
+            setStringInDoc(
+              doc,
+              ['claude-header-defaults', 'timezone'],
+              values.claudeHeaderTimezone
+            );
           }
           if (isDirty('claudeHeaderStabilizeDeviceProfile')) {
             setBooleanInDoc(
@@ -1282,16 +1438,17 @@ export function useVisualConfig() {
         const writeQuotaSwitchProject = isDirty('quotaSwitchProject');
         const writeQuotaSwitchPreviewModel = isDirty('quotaSwitchPreviewModel');
         const writeQuotaAntigravityCredits = isDirty('quotaAntigravityCredits');
-        if (writeQuotaSwitchProject || writeQuotaSwitchPreviewModel || writeQuotaAntigravityCredits) {
+        if (
+          writeQuotaSwitchProject ||
+          writeQuotaSwitchPreviewModel ||
+          writeQuotaAntigravityCredits
+        ) {
           ensureMapInDoc(doc, ['quota-exceeded']);
           if (writeQuotaSwitchProject) {
             doc.setIn(['quota-exceeded', 'switch-project'], values.quotaSwitchProject);
           }
           if (writeQuotaSwitchPreviewModel) {
-            doc.setIn(
-              ['quota-exceeded', 'switch-preview-model'],
-              values.quotaSwitchPreviewModel
-            );
+            doc.setIn(['quota-exceeded', 'switch-preview-model'], values.quotaSwitchPreviewModel);
           }
           if (writeQuotaAntigravityCredits) {
             doc.setIn(['quota-exceeded', 'antigravity-credits'], values.quotaAntigravityCredits);
@@ -1349,6 +1506,42 @@ export function useVisualConfig() {
 
         if (isDirty('streaming.nonstreamKeepaliveInterval')) {
           setIntFromStringInDoc(doc, ['nonstream-keepalive-interval'], nonstreamKeepaliveInterval);
+        }
+
+        if (isDirty('cacheTokenAdjustment')) {
+          const cacheConfig = values.cacheTokenAdjustment;
+          const readRule = serializeCacheAdjustmentRule(cacheConfig.read);
+          const writeRule = serializeCacheAdjustmentRule(cacheConfig.write);
+          const inputRule: Record<string, unknown> = {};
+          if (cacheConfig.input.enabled) inputRule.enabled = true;
+          if (cacheConfig.input.enabled && /^\d+$/.test(cacheConfig.input.maxTokens.trim())) {
+            inputRule['max-tokens'] = Number(cacheConfig.input.maxTokens.trim());
+          }
+          if (
+            cacheConfig.input.enabled &&
+            cacheConfig.input.jitterRatio.trim() &&
+            Number(cacheConfig.input.jitterRatio) >= 1
+          ) {
+            inputRule['jitter-ratio'] = Number(cacheConfig.input.jitterRatio);
+          }
+          const outputRule = serializeCacheAdjustmentRule(cacheConfig.output);
+          if (
+            Object.keys(readRule).length === 0 &&
+            Object.keys(writeRule).length === 0 &&
+            Object.keys(inputRule).length === 0 &&
+            Object.keys(outputRule).length === 0
+          ) {
+            if (docHas(doc, ['cache-token-adjustment'])) {
+              doc.deleteIn(['cache-token-adjustment']);
+            }
+          } else {
+            doc.setIn(['cache-token-adjustment'], {
+              ...(Object.keys(inputRule).length > 0 ? { input: inputRule } : {}),
+              ...(Object.keys(readRule).length > 0 ? { read: readRule } : {}),
+              ...(Object.keys(writeRule).length > 0 ? { write: writeRule } : {}),
+              ...(Object.keys(outputRule).length > 0 ? { output: outputRule } : {}),
+            });
+          }
         }
 
         const payloadDirty =

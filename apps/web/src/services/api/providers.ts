@@ -56,6 +56,10 @@ const COMMON_PROVIDER_KEY_FIELDS = [
   'excluded-models',
   'excludedModels',
   'excluded_models',
+  'max-concurrent',
+  'maxConcurrent',
+  'max_concurrent',
+  'rpm',
 ] as const;
 
 const COOLING_PROVIDER_KEY_FIELDS = [
@@ -692,6 +696,14 @@ const serializeProviderKey = (config: ProviderKeyConfig) => {
   }
   if (config.rebuildMidSystemMessage !== undefined) {
     payload['rebuild-mid-system-message'] = config.rebuildMidSystemMessage;
+  }
+  // A non-positive value means "no cap" in CPA, and omitting the key is how the
+  // cap is cleared, so only positive values are written.
+  if (config.maxConcurrent !== undefined && config.maxConcurrent > 0) {
+    payload['max-concurrent'] = config.maxConcurrent;
+  }
+  if (config.rpm !== undefined && config.rpm > 0) {
+    payload.rpm = config.rpm;
   }
   if (config.proxyUrl) payload['proxy-url'] = config.proxyUrl;
   const headers = serializeHeaders(config.headers);

@@ -1176,6 +1176,8 @@ func eventFromExportedRecord(record map[string]any) (Event, bool, error) {
 	}
 
 	inputTokens, outputTokens, reasoningTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens, totalTokens := readTokenFields(record)
+	rawInputTokens := readNestedThenTopInt(record, []string{"raw_input_tokens", "rawInputTokens", "original_input_tokens", "originalInputTokens"})
+	cacheUsageSource := readString(record, "cache_usage_source", "cacheUsageSource")
 	failStatusCode, failBody := readFailFields(record)
 	failSummary := readString(record, "fail_summary", "failSummary")
 	if failSummary == "" {
@@ -1257,6 +1259,8 @@ func eventFromExportedRecord(record map[string]any) (Event, bool, error) {
 		CacheTokens:                   cacheTokens,
 		CacheReadTokens:               cacheReadTokens,
 		CacheCreationTokens:           cacheCreationTokens,
+		CacheUsageSource:              cacheUsageSource,
+		RawInputTokens:                rawInputTokens,
 		NormalizedUncachedInputTokens: accounting.UncachedInputTokens,
 		NormalizedTotalInputTokens:    accounting.TotalInputTokens,
 		NormalizedCacheReadTokens:     accounting.CacheReadTokens,
@@ -1381,6 +1385,8 @@ func eventFromLegacyDetail(
 	timestampMS, normalizedTimestamp := readTimestamp(detail)
 
 	inputTokens, outputTokens, reasoningTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens, totalTokens := readTokenFields(detail)
+	rawInputTokens := readNestedThenTopInt(detail, []string{"raw_input_tokens", "rawInputTokens", "original_input_tokens", "originalInputTokens"})
+	cacheUsageSource := readString(detail, "cache_usage_source", "cacheUsageSource")
 	failStatusCode, failBody := readFailFields(detail)
 	failSummary := readString(detail, "fail_summary", "failSummary")
 	if failSummary == "" {
@@ -1454,6 +1460,8 @@ func eventFromLegacyDetail(
 		CacheTokens:                   cacheTokens,
 		CacheReadTokens:               cacheReadTokens,
 		CacheCreationTokens:           cacheCreationTokens,
+		CacheUsageSource:              cacheUsageSource,
+		RawInputTokens:                rawInputTokens,
 		NormalizedUncachedInputTokens: accounting.UncachedInputTokens,
 		NormalizedTotalInputTokens:    accounting.TotalInputTokens,
 		NormalizedCacheReadTokens:     accounting.CacheReadTokens,
