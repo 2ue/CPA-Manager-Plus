@@ -28,6 +28,7 @@ description: 在统一 Accounts 工作区管理 CPA 凭证、账号健康、配�
 - 粘贴 JSON、上传、下载、编辑、禁用、恢复或删除凭证。
 - 使用搜索、Provider、状态、计划、配额窗口和运行状态筛选账号。
 - 批量修改优先级或启用状态，并为选中的 Codex 凭证切换 WebSockets。
+- 在“更多”菜单中批量启用或禁用选中 Claude 凭证的稳定用户 ID（`cloak_cache_user_id`）。运行时虚拟凭证和非 Claude 凭证会被排除。
 - 查看账号概览、配置、支持模型、配额历史和诊断证据。
 - 在健康工作区运行本地或服务端 Codex/xAI 巡检。
 
@@ -42,6 +43,12 @@ description: 在统一 Accounts 工作区管理 CPA 凭证、账号健康、配�
 5. 到 [请求监控](./monitoring.md) 确认请求使用了正确账号。
 
 官方 Sub2API 多账号导出会在浏览器中转换为独立的 CPA Codex 凭证。无账号、字段损坏或部分上传失败会显示明确结果，不会把顶层数组误存为一个普通凭证文件。
+
+## Claude 凭证稳定用户 ID
+
+补丁包要求每个真实 Claude 凭证包含 `cloak_cache_user_id: true`，以便同一账号的请求使用稳定用户 ID。Accounts 页的批量操作会复用凭证身份、`auth_index`、共享源文件和插件虚拟凭证回退逻辑，并在并发变化时重新校验目标。
+
+批量操作使用 `Promise.allSettled` 统计成功和失败。出现部分失败时，先保留成功结果，再从 Accounts 页重新选择失败凭证重试；不要直接把备份文件放进 `auth-dir`，因为 CPA 会把目录中的 JSON 扫描成凭证。
 
 ## 配额与状态证据
 

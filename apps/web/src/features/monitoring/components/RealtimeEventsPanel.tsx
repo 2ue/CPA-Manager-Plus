@@ -12,7 +12,7 @@ import {
 import { createPortal } from 'react-dom';
 import type { TFunction } from 'i18next';
 import { Button } from '@/components/ui/Button';
-import { IconCopy, IconEye, IconEyeOff, IconFilter } from '@/components/ui/icons';
+import { IconCopy, IconEye, IconEyeOff, IconFilter, IconInfo } from '@/components/ui/icons';
 import {
   PaginationControls,
   RecentPattern,
@@ -730,6 +730,8 @@ type RealtimeTokenUsageDetails = {
   total: string;
   input: string;
   output: string;
+  cacheRead: string;
+  cacheWrite: string;
   fields: Array<{ label: string; value: string }>;
   ariaLabel: string;
 };
@@ -743,6 +745,10 @@ const buildRealtimeTokenUsageDetails = (row: MonitoringEventRow, t: TFunction) =
     {
       label: t('monitoring.realtime_usage_input_label'),
       value: formatCompactNumber(row.inputTokens),
+    },
+    {
+      label: t('monitoring.realtime_usage_raw_input_label'),
+      value: formatCompactNumber(row.rawInputTokens ?? row.inputTokens),
     },
     {
       label: t('monitoring.realtime_usage_output_label'),
@@ -764,14 +770,24 @@ const buildRealtimeTokenUsageDetails = (row: MonitoringEventRow, t: TFunction) =
       label: t('monitoring.realtime_usage_cache_creation_label'),
       value: formatCompactNumber(row.cacheCreationTokens),
     },
+    {
+      label: t('monitoring.realtime_usage_cache_source_label'),
+      value: row.cacheUsageSource || t('monitoring.realtime_usage_cache_source_none'),
+    },
   ];
 
   return {
     total: fields[0].value,
     input: fields[1].value,
-    output: fields[2].value,
+    output: fields[3].value,
+    cacheRead: formatCompactNumber(row.cacheReadTokens),
+    cacheWrite: formatCompactNumber(row.cacheCreationTokens),
     fields,
-    ariaLabel: fields.map((field) => `${field.label}: ${field.value}`).join(', '),
+    // Keep the established accessible summary stable; the focus/hover tooltip
+    // below carries the additional raw-input and cache-source diagnostics.
+    ariaLabel: [fields[0], fields[1], fields[3], fields[4], fields[5], fields[6], fields[7]]
+      .map((field) => `${field.label}: ${field.value}`)
+      .join(', '),
   } satisfies RealtimeTokenUsageDetails;
 };
 
@@ -916,15 +932,36 @@ function RealtimeTokenUsage({ details, tooltipId }: RealtimeTokenUsageProps) {
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
     >
-      <span className={styles.realtimeUsageTotal}>{details.total}</span>
+      <span className={styles.realtimeUsageHeader}>
+        <span className={styles.realtimeUsageTotal}>{details.total}</span>
+        <IconInfo size={13} />
+      </span>
       <span className={styles.realtimeUsageFlow}>
         <span className={styles.realtimeUsageMetric}>
-          <span aria-hidden="true">↑</span>
+          <span aria-hidden="true" className={styles.realtimeUsageInputIcon}>
+            ↑
+          </span>
           {details.input}
         </span>
         <span className={styles.realtimeUsageMetric}>
-          <span aria-hidden="true">↓</span>
+          <span aria-hidden="true" className={styles.realtimeUsageOutputIcon}>
+            ↓
+          </span>
           {details.output}
+        </span>
+      </span>
+      <span className={styles.realtimeUsageCacheFlow}>
+        <span className={styles.realtimeUsageMetric}>
+          <span aria-hidden="true" className={styles.realtimeUsageCacheReadIcon}>
+            ▣
+          </span>
+          {details.cacheRead}
+        </span>
+        <span className={styles.realtimeUsageMetric}>
+          <span aria-hidden="true" className={styles.realtimeUsageCacheWriteIcon}>
+            ▣
+          </span>
+          {details.cacheWrite}
         </span>
       </span>
       {!isBrowser ? tooltip : null}

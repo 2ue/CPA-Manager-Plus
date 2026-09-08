@@ -15,6 +15,7 @@ import { DatabaseMaintenanceBanner } from '@/components/common/DatabaseMaintenan
 import { DatabaseMaintenanceProvider } from '@/components/common/DatabaseMaintenanceContext';
 import { MainRoutes } from '@/router/MainRoutes';
 import {
+  IconDollarSign,
   IconGithub,
   IconSidebarAuthFiles,
   IconSidebarConfig,
@@ -66,6 +67,7 @@ const sidebarIcons: Record<string, ReactNode> = {
   oauth: <IconSidebarOauth size={SIDEBAR_ICON_SIZE} />,
   usageAnalytics: <IconSidebarUsage size={SIDEBAR_ICON_SIZE} />,
   monitoring: <IconSidebarMonitor size={SIDEBAR_ICON_SIZE} />,
+  modelPrices: <IconDollarSign size={SIDEBAR_ICON_SIZE} />,
   plugins: <IconSidebarPlugins size={SIDEBAR_ICON_SIZE} />,
   config: <IconSidebarConfig size={SIDEBAR_ICON_SIZE} />,
   logs: <IconSidebarLogs size={SIDEBAR_ICON_SIZE} />,
@@ -532,6 +534,14 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
         icon: sidebarIcons.monitoring,
       }
     : null;
+  const modelPricesNavItem = featureAvailability.modelPricesAvailable
+    ? {
+        path: '/model-prices',
+        label: t('nav.model_prices'),
+        shortLabel: navShortLabel('nav.model_prices', t('nav.model_prices')),
+        icon: sidebarIcons.modelPrices,
+      }
+    : null;
   const operationNavItems: NavItem[] = [
     {
       path: '/logs',
@@ -563,6 +573,7 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
       dashboardNavItem,
       ...(usageAnalyticsNavItem ? [usageAnalyticsNavItem] : []),
       ...(monitoringNavItem ? [monitoringNavItem] : []),
+      ...(modelPricesNavItem ? [modelPricesNavItem] : []),
     ],
     [
       {

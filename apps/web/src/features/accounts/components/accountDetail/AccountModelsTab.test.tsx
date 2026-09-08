@@ -46,6 +46,8 @@ const makeDraft = (
   excludedModelsText: '',
   disableCooling: 'inherit',
   requestRetry: '',
+  maxConcurrent: '',
+  rpm: '',
   websockets: false,
   xaiRoutingMode: 'grok-build',
   baseUrl: '',

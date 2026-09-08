@@ -274,6 +274,7 @@ func (s *Service) proxyToSavedSetup(w http.ResponseWriter, r *http.Request, writ
 	}
 	proxy.ModifyResponse = func(response *http.Response) error {
 		responseProcessed = true
+		stripUpstreamCORSHeaders(response)
 		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 			return s.restoreInspectionOwnershipDetached(r.Context(), revokedOwnership)
 		}
@@ -1363,6 +1364,32 @@ func isJSONContentType(value string) bool {
 	return contentType == "application/json" || strings.HasSuffix(contentType, "+json")
 }
 
+// upstreamCORSHeaders are the CORS headers CPA sets on its own responses. The
+// reverse proxy copies upstream headers verbatim, and this server has already
+// written its own CORS headers via the WithCORS middleware, so leaving these in
+// place emits each header twice. Browsers reject a response carrying two
+// Access-Control-Allow-Origin values, which surfaces to the panel as an opaque
+// network failure rather than as an upstream error.
+var upstreamCORSHeaders = []string{
+	"Access-Control-Allow-Origin",
+	"Access-Control-Allow-Methods",
+	"Access-Control-Allow-Headers",
+	"Access-Control-Allow-Credentials",
+	"Access-Control-Max-Age",
+}
+
+// stripUpstreamCORSHeaders removes the upstream's CORS headers so this server
+// remains the single authority for the browser-facing CORS contract. Headers
+// the upstream needs to expose (Access-Control-Expose-Headers) are preserved.
+func stripUpstreamCORSHeaders(response *http.Response) {
+	if response == nil || response.Header == nil {
+		return
+	}
+	for _, header := range upstreamCORSHeaders {
+		response.Header.Del(header)
+	}
+}
+
 func (s *Service) ProxyModelList(w http.ResponseWriter, r *http.Request, writeError func(http.ResponseWriter, int, error), methodNotAllowed func(http.ResponseWriter)) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w)
@@ -1396,6 +1423,10 @@ func (s *Service) ProxyModelList(w http.ResponseWriter, r *http.Request, writeEr
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		writeError(w, http.StatusBadGateway, err)
+	}
+	proxy.ModifyResponse = func(response *http.Response) error {
+		stripUpstreamCORSHeaders(response)
+		return nil
 	}
 	proxy.ServeHTTP(w, r)
 }

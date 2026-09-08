@@ -448,6 +448,85 @@ describe('providersApi v1.16 provider fields', () => {
     ]);
   });
 
+  it('normalizes Claude per-credential concurrency and RPM caps, treating non-positive values as no cap', async () => {
+    mocks.get.mockResolvedValueOnce({
+      'claude-api-key': [
+        {
+          'api-key': 'kebab',
+          'base-url': 'https://example.com/kebab',
+          'max-concurrent': 8,
+          rpm: 120,
+        },
+        {
+          'api-key': 'camel',
+          'base-url': 'https://example.com/camel',
+          maxConcurrent: '12',
+          rpm: '60',
+        },
+        {
+          'api-key': 'snake',
+          'base-url': 'https://example.com/snake',
+          max_concurrent: 20.7,
+        },
+        {
+          'api-key': 'non-positive',
+          'base-url': 'https://example.com/zero',
+          'max-concurrent': 0,
+          rpm: -5,
+        },
+        { 'api-key': 'absent', 'base-url': 'https://example.com/absent' },
+      ],
+    });
+
+    await expect(providersApi.getClaudeConfigs()).resolves.toEqual([
+      expect.objectContaining({ apiKey: 'kebab', maxConcurrent: 8, rpm: 120 }),
+      expect.objectContaining({ apiKey: 'camel', maxConcurrent: 12, rpm: 60 }),
+      expect.objectContaining({ apiKey: 'snake', maxConcurrent: 20 }),
+      expect.not.objectContaining({ maxConcurrent: expect.anything(), rpm: expect.anything() }),
+      expect.not.objectContaining({ maxConcurrent: expect.anything(), rpm: expect.anything() }),
+    ]);
+  });
+
+  it('serializes Claude concurrency and RPM caps and clears existing caps in every raw alias', async () => {
+    mocks.get.mockResolvedValue({
+      'claude-api-key': [
+        {
+          'auth-index': 'auth-keep',
+          'raw-field': 'keep',
+          'max-concurrent': 8,
+          rpm: 120,
+        },
+        {
+          'auth-index': 'auth-clear',
+          'raw-field': 'keep-too',
+          'max-concurrent': 4,
+          maxConcurrent: 4,
+          max_concurrent: 4,
+          rpm: 30,
+        },
+      ],
+    });
+    mocks.put.mockResolvedValue({});
+
+    await providersApi.saveClaudeConfigs([
+      { apiKey: '', authIndex: 'auth-keep', maxConcurrent: 16, rpm: 90 },
+      { apiKey: '', authIndex: 'auth-clear' },
+    ]);
+
+    expect(mocks.put).toHaveBeenCalledWith('/claude-api-key', [
+      {
+        'raw-field': 'keep',
+        'auth-index': 'auth-keep',
+        'max-concurrent': 16,
+        rpm: 90,
+      },
+      {
+        'raw-field': 'keep-too',
+        'auth-index': 'auth-clear',
+      },
+    ]);
+  });
+
   it('serializes Claude fingerprint-profile without creating legacy cch fields', async () => {
     mocks.get.mockResolvedValue({ 'claude-api-key': [] });
     mocks.put.mockResolvedValue({});

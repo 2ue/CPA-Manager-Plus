@@ -1,5 +1,5 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
-import { isValidElement, StrictMode } from 'react';
+import { isValidElement, StrictMode, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Button } from '@/components/ui/Button';
 import { Drawer } from '@/components/ui/Drawer';
@@ -200,6 +200,23 @@ const makeCodexFile = (name: string, authIndex: string, account: string): AuthFi
     account,
     priority: 0,
     disabled: false,
+  }) as AuthFileItem;
+
+const makeClaudeFile = (
+  name: string,
+  authIndex: string,
+  account: string,
+  overrides: Record<string, unknown> = {}
+): AuthFileItem =>
+  ({
+    name,
+    type: 'claude',
+    provider: 'claude',
+    authIndex,
+    account,
+    priority: 0,
+    disabled: false,
+    ...overrides,
   }) as AuthFileItem;
 
 const CODEX_MAIN_MODEL = 'gpt-5.6-sol';
@@ -638,6 +655,8 @@ vi.mock('@/features/authFiles/hooks/useAuthFileConfigurationEditor', () => ({
       excludedModelsText: '',
       disableCooling: 'inherit' as const,
       requestRetry: '',
+      maxConcurrent: '',
+      rpm: '',
       websockets: false,
       xaiRoutingMode: 'grok-build' as const,
       baseUrl: '',
@@ -706,6 +725,26 @@ vi.mock('@/features/monitoring/codexInspection', () => ({
 
 vi.mock('@/features/authFiles/components/AuthJsonPasteModal', () => ({
   AuthJsonPasteModal: () => null,
+}));
+
+vi.mock('@/components/ui/Modal', () => ({
+  Modal: ({
+    open,
+    title,
+    footer,
+    children,
+  }: {
+    open: boolean;
+    title?: ReactNode;
+    footer?: ReactNode;
+    children?: ReactNode;
+  }) =>
+    open ? (
+      <div data-mock-modal-title={typeof title === 'string' ? title : undefined}>
+        <div>{children}</div>
+        <div>{footer}</div>
+      </div>
+    ) : null,
 }));
 
 vi.mock('@/features/authFiles/components/OAuthExcludedCard', () => ({
@@ -3852,6 +3891,106 @@ describe('AccountsPage replacement flows', () => {
     expect(mocks.batchPatchFields).toHaveBeenCalledWith([getAuthFilePatchTarget(mocks.files[0])], {
       websockets: true,
     });
+  });
+
+  it('opens batch max-concurrency and RPM editors and patches the selected credentials', async () => {
+    mocks.selectedFiles = new Set(['codex.json\u0000auth-1']);
+    mocks.selectionCount = 1;
+    const renderer = await renderAccountsPage();
+
+    await act(async () => {
+      findBatchMoreItem(renderer, 'set-max-concurrent').onClick();
+    });
+    let inputs = renderer.root.findAllByType(Input);
+    const concurrencyInput = inputs.find(
+      (input) => input.props.label === 'accounts.config_max_concurrent_label'
+    );
+    expect(concurrencyInput).toBeTruthy();
+    act(() => concurrencyInput?.props.onChange({ target: { value: '8' } }));
+    const concurrencyConfirm = renderer.root
+      .findAllByType('button')
+      .find((button) => readText(button).includes('common.confirm'));
+    if (!concurrencyConfirm) throw new Error('batch concurrency confirm button missing');
+    await act(async () => {
+      await concurrencyConfirm.props.onClick();
+    });
+    expect(mocks.batchPatchFields).toHaveBeenCalledWith([getAuthFilePatchTarget(mocks.files[0])], {
+      max_concurrent: 8,
+    });
+
+    mocks.batchPatchFields.mockClear();
+    await act(async () => {
+      findBatchMoreItem(renderer, 'set-rpm').onClick();
+    });
+    inputs = renderer.root.findAllByType(Input);
+    const rpmInput = inputs.find((input) => input.props.label === 'accounts.config_rpm_label');
+    expect(rpmInput).toBeTruthy();
+    act(() => rpmInput?.props.onChange({ target: { value: '120' } }));
+    const rpmConfirm = renderer.root
+      .findAllByType('button')
+      .find((button) => readText(button).includes('common.confirm'));
+    if (!rpmConfirm) throw new Error('batch RPM confirm button missing');
+    await act(async () => {
+      await rpmConfirm.props.onClick();
+    });
+    expect(mocks.batchPatchFields).toHaveBeenCalledWith([getAuthFilePatchTarget(mocks.files[0])], {
+      rpm: 120,
+    });
+  });
+
+  it('fills only missing Claude stable user ID fields without overriding explicit values', async () => {
+    const missing = makeClaudeFile('claude.json', 'auth-missing', 'missing@example.com');
+    const enabled = makeClaudeFile('claude.json', 'auth-enabled', 'enabled@example.com', {
+      cloak_cache_user_id: true,
+    });
+    const disabled = makeClaudeFile('claude.json', 'auth-disabled', 'disabled@example.com', {
+      cloak_cache_user_id: false,
+    });
+    mocks.files = [missing, enabled, disabled];
+    mocks.selectedFiles = new Set([
+      'claude.json\u0000auth-missing',
+      'claude.json\u0000auth-enabled',
+      'claude.json\u0000auth-disabled',
+    ]);
+    mocks.selectionCount = 3;
+
+    const renderer = await renderAccountsPage();
+
+    await act(async () => {
+      await findBatchMoreItem(renderer, 'claude-cloak-cache-fill-missing').onClick();
+    });
+
+    expect(mocks.batchPatchFields).toHaveBeenCalledWith(
+      [getAuthFilePatchTarget(missing)],
+      { cloak_cache_user_id: 'true' }
+    );
+  });
+
+  it('does not patch Claude credentials when every selected value is explicit', async () => {
+    const enabled = makeClaudeFile('claude.json', 'auth-enabled', 'enabled@example.com', {
+      cloak_cache_user_id: true,
+    });
+    const disabled = makeClaudeFile('claude.json', 'auth-disabled', 'disabled@example.com', {
+      cloak_cache_user_id: false,
+    });
+    mocks.files = [enabled, disabled];
+    mocks.selectedFiles = new Set([
+      'claude.json\u0000auth-enabled',
+      'claude.json\u0000auth-disabled',
+    ]);
+    mocks.selectionCount = 2;
+
+    const renderer = await renderAccountsPage();
+
+    await act(async () => {
+      await findBatchMoreItem(renderer, 'claude-cloak-cache-fill-missing').onClick();
+    });
+
+    expect(mocks.batchPatchFields).not.toHaveBeenCalled();
+    expect(mocks.showNotification).toHaveBeenCalledWith(
+      'auth_files.batch_claude_cloak_cache_no_missing',
+      'info'
+    );
   });
 
   it('disables batch delete for partial shared auth-file selections', async () => {

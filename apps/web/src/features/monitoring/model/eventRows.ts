@@ -115,9 +115,7 @@ export const buildEventRows = (
       const xForwardedFor = readString(detail.x_forwarded_for ?? detail.xForwardedFor);
       const userAgent = readString(detail.user_agent ?? detail.userAgent);
       const resolvedModel = readString(detail.__resolvedModel);
-      const accountId = readString(
-        detail.auth_account_id_snapshot ?? detail.authAccountIdSnapshot
-      );
+      const accountId = readString(detail.auth_account_id_snapshot ?? detail.authAccountIdSnapshot);
       const rawProjectId = readString(
         detail.auth_project_id_snapshot ?? detail.authProjectIdSnapshot
       );
@@ -127,6 +125,10 @@ export const buildEventRows = (
           ? ''
           : rawProjectId;
       const inputTokens = Math.max(Number(detail.tokens?.input_tokens) || 0, 0);
+      const rawInputTokens = Math.max(
+        Number(detail.tokens?.raw_input_tokens ?? detail.tokens?.rawInputTokens) || inputTokens,
+        0
+      );
       const outputTokens = Math.max(Number(detail.tokens?.output_tokens) || 0, 0);
       const reasoningTokens = Math.max(Number(detail.tokens?.reasoning_tokens) || 0, 0);
       const cacheReadTokens = Math.max(Number(detail.tokens?.cache_read_tokens) || 0, 0);
@@ -249,11 +251,13 @@ export const buildEventRows = (
         ttftMs,
         tokensPerSecond,
         inputTokens,
+        rawInputTokens,
         outputTokens,
         reasoningTokens,
         cachedTokens,
         cacheReadTokens,
         cacheCreationTokens,
+        cacheUsageSource: readString(detail.cache_usage_source ?? detail.cacheUsageSource),
         totalTokens,
         totalCost,
         reasoningEffort,

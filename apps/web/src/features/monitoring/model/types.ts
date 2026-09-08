@@ -28,14 +28,7 @@ export type MonitoringAuthMeta = {
   updatedAt: string;
 };
 
-export type MonitoringTimeRange =
-  | 'today'
-  | 'yesterday'
-  | '7d'
-  | '14d'
-  | '30d'
-  | 'all'
-  | 'custom';
+export type MonitoringTimeRange = 'today' | 'yesterday' | '7d' | '14d' | '30d' | 'all' | 'custom';
 
 export type MonitoringCustomTimeRange = {
   startMs: number;
@@ -193,11 +186,13 @@ export type MonitoringEventRow = {
   ttftMs: number | null;
   tokensPerSecond: number | null;
   inputTokens: number;
+  rawInputTokens?: number;
   outputTokens: number;
   reasoningTokens: number;
   cachedTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
+  cacheUsageSource?: string;
   totalTokens: number;
   totalCost: number;
   reasoningEffort?: string;

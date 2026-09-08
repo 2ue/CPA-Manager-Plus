@@ -76,6 +76,9 @@ interface VisualConfigEditorProps {
   onRefreshApiKeys: () => Promise<string[]>;
   onApiKeyOperationStart: () => void;
   onApiKeyOperationEnd: () => void;
+  onEnableMissingClaudeStableUserIds: () => Promise<void>;
+  claudeStableUserIdUpdating?: boolean;
+  claudeStableUserIdDisabled?: boolean;
 }
 
 function getValidationMessage(
@@ -187,6 +190,9 @@ export function VisualConfigEditor({
   onRefreshApiKeys,
   onApiKeyOperationStart,
   onApiKeyOperationEnd,
+  onEnableMissingClaudeStableUserIds,
+  claudeStableUserIdUpdating = false,
+  claudeStableUserIdDisabled = false,
 }: VisualConfigEditorProps) {
   const { t } = useTranslation();
   const pageTransitionLayer = usePageTransitionLayer();
@@ -773,6 +779,26 @@ export function VisualConfigEditor({
                 disabled={disabled}
                 hint={t('config_management.visual.sections.auth.auth_dir_hint')}
               />
+              <div className={styles.credentialMaintenance}>
+                <div className={styles.credentialMaintenanceCopy}>
+                  <div className={styles.credentialMaintenanceTitle}>
+                    {t('config_management.visual.sections.auth.claude_stable_user_id_title')}
+                  </div>
+                  <div className={styles.credentialMaintenanceDescription}>
+                    {t('config_management.visual.sections.auth.claude_stable_user_id_desc')}
+                  </div>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void onEnableMissingClaudeStableUserIds()}
+                  disabled={claudeStableUserIdDisabled}
+                  loading={claudeStableUserIdUpdating}
+                >
+                  <IconShield size={16} />
+                  {t('config_management.visual.sections.auth.claude_stable_user_id_apply')}
+                </Button>
+              </div>
               <div className={styles.subsection}>
                 <ApiKeysCardEditor
                   value={values.apiKeysText}
@@ -1232,18 +1258,30 @@ export function VisualConfigEditor({
                         value={values.claudeHeaderOs}
                         onChange={(e) => onChange({ claudeHeaderOs: e.target.value })}
                         disabled={disabled}
+                        error={getValidationMessage(t, validationErrors?.claudeHeaderOs)}
                       />
                       <Input
                         label={t('config_management.visual.sections.headers.arch')}
                         value={values.claudeHeaderArch}
                         onChange={(e) => onChange({ claudeHeaderArch: e.target.value })}
                         disabled={disabled}
+                        error={getValidationMessage(t, validationErrors?.claudeHeaderArch)}
                       />
                       <Input
                         label={t('config_management.visual.sections.headers.timeout')}
                         value={values.claudeHeaderTimeout}
                         onChange={(e) => onChange({ claudeHeaderTimeout: e.target.value })}
                         disabled={disabled}
+                      />
+                      <Input
+                        label={t('config_management.visual.sections.headers.timezone')}
+                        value={values.claudeHeaderTimezone}
+                        onChange={(e) => onChange({ claudeHeaderTimezone: e.target.value })}
+                        disabled={disabled}
+                        placeholder={t(
+                          'config_management.visual.sections.headers.timezone_placeholder'
+                        )}
+                        error={getValidationMessage(t, validationErrors?.claudeHeaderTimezone)}
                       />
                       <ToggleRow
                         title={t('config_management.visual.sections.headers.stabilize_device')}

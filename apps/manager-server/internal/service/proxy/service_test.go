@@ -1805,3 +1805,33 @@ func TestRewritePluginManagementOriginBodyLeavesOtherBodies(t *testing.T) {
 		t.Fatalf("body = %q", raw)
 	}
 }
+
+func TestStripUpstreamCORSHeadersRemovesDuplicateContract(t *testing.T) {
+	response := &http.Response{Header: http.Header{}}
+	response.Header.Set("Access-Control-Allow-Origin", "*")
+	response.Header.Set("Access-Control-Allow-Methods", "GET, POST")
+	response.Header.Set("Access-Control-Allow-Headers", "*")
+	response.Header.Set("Access-Control-Allow-Credentials", "true")
+	response.Header.Set("Access-Control-Max-Age", "600")
+	response.Header.Set("Access-Control-Expose-Headers", "X-Cpa-Version")
+	response.Header.Set("Content-Type", "application/json")
+
+	stripUpstreamCORSHeaders(response)
+
+	for _, header := range upstreamCORSHeaders {
+		if got := response.Header.Get(header); got != "" {
+			t.Fatalf("%s = %q, want it removed so this server owns the CORS contract", header, got)
+		}
+	}
+	if got := response.Header.Get("Access-Control-Expose-Headers"); got != "X-Cpa-Version" {
+		t.Fatalf("Access-Control-Expose-Headers = %q, want the upstream value preserved", got)
+	}
+	if got := response.Header.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want non-CORS headers untouched", got)
+	}
+}
+
+func TestStripUpstreamCORSHeadersToleratesMissingHeader(t *testing.T) {
+	stripUpstreamCORSHeaders(nil)
+	stripUpstreamCORSHeaders(&http.Response{})
+}

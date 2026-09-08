@@ -18,6 +18,9 @@ export type VisualConfigFieldPath =
   | 'maxRetryCredentials'
   | 'maxRetryInterval'
   | 'authAutoRefreshWorkers'
+  | 'claudeHeaderOs'
+  | 'claudeHeaderArch'
+  | 'claudeHeaderTimezone'
   | 'streaming.keepaliveSeconds'
   | 'streaming.bootstrapRetries'
   | 'streaming.nonstreamKeepaliveInterval';
@@ -26,7 +29,10 @@ export type VisualConfigValidationErrorCode =
   | 'port_range'
   | 'non_negative_integer'
   | 'integer'
-  | 'retention_seconds_range';
+  | 'retention_seconds_range'
+  | 'timezone'
+  | 'claude_os'
+  | 'claude_arch';
 
 export type VisualConfigValidationErrors = Partial<
   Record<VisualConfigFieldPath, VisualConfigValidationErrorCode>
@@ -73,6 +79,34 @@ export interface StreamingConfig {
   keepaliveSeconds: string;
   bootstrapRetries: string;
   nonstreamKeepaliveInterval: string;
+}
+
+export type CacheAdjustmentTrigger = '' | 'range' | 'greater-than' | 'less-than';
+
+export interface CacheTokenAdjustmentRule {
+  enabled: boolean;
+  trigger: CacheAdjustmentTrigger;
+  triggerMin: string;
+  triggerMax: string;
+  multiplier: string;
+  maxTokens: string;
+  clipMinTokens: string;
+  clipMaxTokens: string;
+}
+
+export interface InputTokenAdjustmentConfig {
+  enabled: boolean;
+  maxTokens: string;
+  jitterRatio: string;
+}
+
+export interface OutputTokenAdjustmentConfig extends CacheTokenAdjustmentRule {}
+
+export interface CacheTokenAdjustmentConfig {
+  input: InputTokenAdjustmentConfig;
+  read: CacheTokenAdjustmentRule;
+  write: CacheTokenAdjustmentRule;
+  output: OutputTokenAdjustmentConfig;
 }
 
 export type PluginStoreAuthRule = {
@@ -146,6 +180,7 @@ export type VisualConfigValues = {
   claudeHeaderOs: string;
   claudeHeaderArch: string;
   claudeHeaderTimeout: string;
+  claudeHeaderTimezone: string;
   claudeHeaderStabilizeDeviceProfile: boolean;
   codexHeaderUserAgent: string;
   codexHeaderBetaFeatures: string;
@@ -156,6 +191,7 @@ export type VisualConfigValues = {
   payloadOverrideRawRules: PayloadRule[];
   payloadFilterRules: PayloadFilterRule[];
   streaming: StreamingConfig;
+  cacheTokenAdjustment: CacheTokenAdjustmentConfig;
 };
 
 export const makeClientId = () => {
@@ -221,6 +257,7 @@ export const DEFAULT_VISUAL_VALUES: VisualConfigValues = {
   claudeHeaderOs: '',
   claudeHeaderArch: '',
   claudeHeaderTimeout: '',
+  claudeHeaderTimezone: '',
   claudeHeaderStabilizeDeviceProfile: false,
   codexHeaderUserAgent: '',
   codexHeaderBetaFeatures: '',
@@ -234,5 +271,42 @@ export const DEFAULT_VISUAL_VALUES: VisualConfigValues = {
     keepaliveSeconds: '',
     bootstrapRetries: '',
     nonstreamKeepaliveInterval: '',
+  },
+  cacheTokenAdjustment: {
+    input: {
+      enabled: false,
+      maxTokens: '',
+      jitterRatio: '',
+    },
+    read: {
+      enabled: false,
+      trigger: '',
+      triggerMin: '',
+      triggerMax: '',
+      multiplier: '',
+      maxTokens: '',
+      clipMinTokens: '',
+      clipMaxTokens: '',
+    },
+    write: {
+      enabled: false,
+      trigger: '',
+      triggerMin: '',
+      triggerMax: '',
+      multiplier: '',
+      maxTokens: '',
+      clipMinTokens: '',
+      clipMaxTokens: '',
+    },
+    output: {
+      enabled: false,
+      trigger: '',
+      triggerMin: '',
+      triggerMax: '',
+      multiplier: '',
+      maxTokens: '',
+      clipMinTokens: '',
+      clipMaxTokens: '',
+    },
   },
 };

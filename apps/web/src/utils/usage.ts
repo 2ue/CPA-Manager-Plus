@@ -57,6 +57,8 @@ export interface ModelPrice {
 
 export interface UsageTokens {
   input_tokens?: number;
+  raw_input_tokens?: number;
+  rawInputTokens?: number;
   output_tokens?: number;
   reasoning_tokens?: number;
   cached_tokens?: number;
@@ -214,6 +216,8 @@ export interface UsageDetail {
   responseServiceTier?: string;
   cache_input_mode?: CacheInputMode | string;
   cacheInputMode?: CacheInputMode | string;
+  cache_usage_source?: 'none' | 'upstream' | 'estimated' | 'mixed' | string;
+  cacheUsageSource?: 'none' | 'upstream' | 'estimated' | 'mixed' | string;
   executor_type?: string;
   executorType?: string;
   provider?: string;
@@ -808,6 +812,8 @@ const readTokens = (detail: Record<string, unknown>, modelName: string): UsageTo
     cacheCreationTokens,
   });
   const inputTokens = accounting.totalInputTokens;
+  const rawInputTokens =
+    toFiniteNumber(tokensRaw.raw_input_tokens ?? tokensRaw.rawInputTokens) ?? inputTokens;
   const outputTokens = toFiniteNumber(tokensRaw.output_tokens ?? tokensRaw.outputTokens);
   const reasoningTokens = toFiniteNumber(tokensRaw.reasoning_tokens ?? tokensRaw.reasoningTokens);
   const explicitTotalTokens = toFiniteNumber(tokensRaw.total_tokens ?? tokensRaw.totalTokens);
@@ -815,6 +821,7 @@ const readTokens = (detail: Record<string, unknown>, modelName: string): UsageTo
     explicitTotalTokens > 0 ? explicitTotalTokens : inputTokens + outputTokens + reasoningTokens;
   return {
     input_tokens: inputTokens,
+    raw_input_tokens: rawInputTokens,
     output_tokens: outputTokens,
     reasoning_tokens: reasoningTokens,
     cached_tokens: accounting.legacyRead,
@@ -924,6 +931,9 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
           ),
           cache_input_mode: readDetailString(
             detailRaw.cache_input_mode ?? detailRaw.cacheInputMode
+          ),
+          cache_usage_source: readDetailString(
+            detailRaw.cache_usage_source ?? detailRaw.cacheUsageSource
           ),
           tokens: readTokens(detailRaw, modelName),
           failed: detailRaw.failed === true,
@@ -1057,6 +1067,9 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
           ),
           cache_input_mode: readDetailString(
             detailRaw.cache_input_mode ?? detailRaw.cacheInputMode
+          ),
+          cache_usage_source: readDetailString(
+            detailRaw.cache_usage_source ?? detailRaw.cacheUsageSource
           ),
           latency_ms: latencyMs ?? undefined,
           ttft_ms: ttftMs ?? undefined,

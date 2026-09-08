@@ -77,7 +77,20 @@ const buildEmptyForm = (): ProviderFormState => ({
   modelEntries: [{ name: '', alias: '' }],
   excludedText: '',
   disableCooling: 'inherit',
+  maxConcurrent: undefined,
+  rpm: undefined,
 });
+
+// parseCredentialLimit turns the concurrency / RPM inputs into the value CPA
+// stores. A blank or non-positive entry means "no cap", which is expressed by
+// omitting the field rather than by writing a zero.
+const parseCredentialLimit = (raw: string): number | undefined => {
+  if (raw.trim() === '') return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return undefined;
+  const truncated = Math.trunc(parsed);
+  return truncated > 0 ? truncated : undefined;
+};
 
 const normalizeClaudeModelEntries = (entries: ProviderFormState['modelEntries']) =>
   (entries ?? []).reduce<ProviderFormState['modelEntries']>((acc, entry) => {
@@ -133,6 +146,8 @@ const buildClaudeBaseline = (form: ProviderFormState) => ({
   models: normalizeClaudeModelEntries(form.modelEntries),
   excludedModels: parseExcludedModels(form.excludedText ?? ''),
   cloak: normalizeCloakConfig(form.cloak),
+  maxConcurrent: form.maxConcurrent ?? null,
+  rpm: form.rpm ?? null,
 });
 
 const getErrorMessage = (err: unknown) => {
@@ -287,7 +302,9 @@ export function ClaudeEditDrawer({
         baseline.excludedModels,
         parseExcludedModels(form.excludedText ?? '')
       ) ||
-      !areCloakConfigsEqual(baseline.cloak, normalizeCloakConfig(form.cloak))
+      !areCloakConfigsEqual(baseline.cloak, normalizeCloakConfig(form.cloak)) ||
+      baseline.maxConcurrent !== (form.maxConcurrent ?? null) ||
+      baseline.rpm !== (form.rpm ?? null)
     );
   }, [baseline, form]);
 
@@ -631,6 +648,8 @@ export function ClaudeEditDrawer({
         disableCooling: coolingPolicyToOverride(form.disableCooling),
         fingerprintProfile: form.fingerprintProfile,
         rebuildMidSystemMessage: form.rebuildMidSystemMessage,
+        maxConcurrent: form.maxConcurrent,
+        rpm: form.rpm,
       };
       const fingerprintExplicitlyChanged =
         editIndex !== null
@@ -764,6 +783,30 @@ export function ClaudeEditDrawer({
             <CredentialWeightInput
               value={form.weight}
               onChange={(weight) => setForm((prev) => ({ ...prev, weight }))}
+              disabled={saving || disabled || isTesting}
+            />
+            <Input
+              label={t('accounts.config_max_concurrent_label')}
+              hint={t('accounts.config_max_concurrent_hint')}
+              type="number"
+              min={1}
+              step={1}
+              value={form.maxConcurrent ?? ''}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, maxConcurrent: parseCredentialLimit(e.target.value) }))
+              }
+              disabled={saving || disabled || isTesting}
+            />
+            <Input
+              label={t('accounts.config_rpm_label')}
+              hint={t('accounts.config_rpm_hint')}
+              type="number"
+              min={1}
+              step={1}
+              value={form.rpm ?? ''}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, rpm: parseCredentialLimit(e.target.value) }))
+              }
               disabled={saving || disabled || isTesting}
             />
             <Input

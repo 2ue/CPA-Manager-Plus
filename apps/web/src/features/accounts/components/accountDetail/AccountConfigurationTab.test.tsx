@@ -47,6 +47,8 @@ const makeDraft = (
   excludedModelsText: '',
   disableCooling: 'inherit',
   requestRetry: '',
+  maxConcurrent: '',
+  rpm: '',
   websockets: false,
   xaiRoutingMode: 'grok-build',
   baseUrl: '',
@@ -174,6 +176,31 @@ describe('AccountConfigurationTab', () => {
     expect(text).toContain('accounts.config_tool_prefix_disabled');
     expect(text).not.toContain('accounts.config_xai_route_mode');
     expect(text).not.toContain('auth_files.websockets_label');
+  });
+
+  it('exposes max concurrency and RPM controls in the scheduling section', () => {
+    const draft = makeDraft({
+      maxConcurrent: '4',
+      rpm: '120',
+    });
+    const editor = makeEditor('codex', draft);
+    const renderer = renderTab(makeRow('codex'), editor);
+    const inputs = renderer.root.findAllByType(Input);
+    const maxConcurrentInput = inputs.find(
+      (input) => input.props.label === 'accounts.config_max_concurrent_label'
+    );
+    const rpmInput = inputs.find((input) => input.props.label === 'accounts.config_rpm_label');
+
+    expect(readText(renderer.toJSON())).toContain('accounts.config_max_concurrent_label');
+    expect(readText(renderer.toJSON())).toContain('accounts.config_rpm_label');
+    expect(maxConcurrentInput).toBeTruthy();
+    expect(rpmInput).toBeTruthy();
+
+    act(() => maxConcurrentInput?.props.onChange({ target: { value: '6' } }));
+    act(() => rpmInput?.props.onChange({ target: { value: '240' } }));
+
+    expect(editor.updateField).toHaveBeenCalledWith('maxConcurrent', '6');
+    expect(editor.updateField).toHaveBeenCalledWith('rpm', '240');
   });
 
   it('keeps primary save and reset actions at the top of the hierarchy', () => {

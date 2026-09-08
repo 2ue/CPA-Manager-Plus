@@ -28,6 +28,7 @@ Keep `auth_index` stable in multi-account deployments. File-name-only identity i
 - Paste JSON, upload, download, edit, disable, restore, or delete credentials.
 - Filter by search, provider, state, plan, quota window, or operational state.
 - Batch change priority or enabled state, and toggle WebSockets for selected Codex credentials.
+- Use the More menu to enable or disable stable user IDs (`cloak_cache_user_id`) for selected Claude credentials. Runtime-only virtual credentials and non-Claude credentials are excluded.
 - Inspect overview, configuration, supported models, quota history, and diagnostic evidence.
 - Run local or Manager Server Codex/xAI inspection from the health workspace.
 
@@ -42,6 +43,12 @@ If you are unsure whether an account is still needed, disable it before deleting
 5. Open [Monitoring](./monitoring.md) and confirm the request used the expected account.
 
 Official Sub2API multi-account exports are converted in the browser into independent CPA Codex credentials. Empty exports, malformed fields, and partial upload failures produce explicit results; a top-level array is not silently saved as one ordinary credential file.
+
+## Stable User IDs For Claude Credentials
+
+The patch package expects each real Claude credential to contain `cloak_cache_user_id: true`, so requests for one account use a stable user ID. The Accounts batch action reuses credential identity, `auth_index`, shared source-file, and plugin-virtual-credential fallback handling, and revalidates targets after concurrent changes.
+
+Batch writes use `Promise.allSettled` and report successes and failures separately. On a partial failure, keep the successful updates and select the failed credentials again in Accounts to retry. Do not put backup files in `auth-dir`; CPA scans JSON files in that directory as credentials.
 
 ## Quota And Health Evidence
 

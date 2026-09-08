@@ -7,6 +7,7 @@ import {
   buildAuthFileConfigurationPatch,
   buildRedactedAuthFileConfigurationText,
   getAuthFileConfigurationCapabilities,
+  hasExplicitClaudeCloakCacheUserId,
   parseAuthFileConfigurationSource,
   type AuthFileConfigurationDraft,
 } from './authFileConfiguration';
@@ -20,6 +21,21 @@ const makeFile = (overrides: Partial<AuthFileItem> = {}): AuthFileItem =>
     account: 'one@example.com',
     ...overrides,
   }) as AuthFileItem;
+
+describe('hasExplicitClaudeCloakCacheUserId', () => {
+  it.each([
+    [{}, false],
+    [{ cloak_cache_user_id: true }, true],
+    [{ cloak_cache_user_id: false }, true],
+    [{ cloak_cache_user_id: 'true' }, true],
+    [{ cloak_cache_user_id: 'false' }, true],
+    [{ cloak_cache_user_id: '' }, false],
+    [{ cloakCacheUserId: true }, true],
+    [{ 'cloak-cache-user-id': false }, true],
+  ])('recognizes explicit values without treating false as missing', (record, expected) => {
+    expect(hasExplicitClaudeCloakCacheUserId(makeFile({ ...record }))).toBe(expected);
+  });
+});
 
 describe('authFileConfiguration provider capabilities', () => {
   it('keeps provider-only OAuth fields distinct', () => {

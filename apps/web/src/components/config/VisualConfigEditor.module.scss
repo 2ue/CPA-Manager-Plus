@@ -509,6 +509,37 @@
   line-height: 1.6;
 }
 
+.credentialMaintenance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px 18px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+}
+
+.credentialMaintenanceCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.credentialMaintenanceTitle {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.credentialMaintenanceDescription {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .fieldShell {
   display: flex;
   flex-direction: column;
@@ -933,6 +964,12 @@
     padding: 14px 16px;
   }
 
+  .credentialMaintenance {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px 16px;
+  }
+
   .blockHeaderRow,
   .ruleCardHeader {
     align-items: stretch;
@@ -940,6 +977,7 @@
 
   .blockHeaderRow :global(.btn),
   .ruleCardHeader :global(.btn),
+  .credentialMaintenance :global(.btn),
   .actionRow :global(.btn),
   .stringListRow :global(.btn),
   .payloadHeaderRow :global(.btn) {
@@ -963,7 +1001,8 @@
 
   .subsection,
   .ruleCard,
-  .toggleRow {
+  .toggleRow,
+  .credentialMaintenance {
     padding: 14px;
   }
 }

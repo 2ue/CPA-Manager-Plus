@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiKeyMutation } from '@/components/config/ApiKeysCardEditor';
 import type { ManagerConfigResponse } from '@/services/api/usageService';
+import type { AuthFileItem } from '@/types';
 
 vi.mock('react-dom', () => ({
   createPortal: (children: ReactNode) => children,
@@ -29,6 +30,11 @@ const mocks = vi.hoisted(() => ({
   getManagerConfig: vi.fn(),
   saveManagerConfig: vi.fn(),
   reloadPage: vi.fn(),
+  authFilesLoad: vi.fn(),
+  authFilesBatchPatchFields: vi.fn(),
+  authFiles: [] as AuthFileItem[],
+  capturedEnableMissingClaudeStableUserIds: null as (() => Promise<void>) | null,
+  capturedDiffConfirm: null as (() => Promise<void>) | null,
   capturedApiKeyOperationStart: null as (() => void) | null,
   capturedApiKeyOperationEnd: null as (() => void) | null,
   translate: (key: string) => key,
@@ -57,13 +63,16 @@ vi.mock('@/components/config/VisualConfigEditor', () => ({
     onPersistApiKeyMutation,
     onApiKeyOperationStart,
     onApiKeyOperationEnd,
+    onEnableMissingClaudeStableUserIds,
   }: {
     onPersistApiKeyMutation: (mutation: ApiKeyMutation) => Promise<string[]>;
     onApiKeyOperationStart: () => void;
     onApiKeyOperationEnd: () => void;
+    onEnableMissingClaudeStableUserIds: () => Promise<void>;
   }) => {
     mocks.capturedApiKeyOperationStart = onApiKeyOperationStart;
     mocks.capturedApiKeyOperationEnd = onApiKeyOperationEnd;
+    mocks.capturedEnableMissingClaudeStableUserIds = onEnableMissingClaudeStableUserIds;
     const runMutation = async (mutation: ApiKeyMutation) => {
       try {
         onApiKeyOperationStart();
@@ -78,6 +87,11 @@ vi.mock('@/components/config/VisualConfigEditor', () => ({
 
     return (
       <div data-test="visual-editor">
+        <button
+          type="button"
+          data-test="enable-missing-claude-user-ids"
+          onClick={() => void onEnableMissingClaudeStableUserIds()}
+        />
         <button
           type="button"
           data-test="create-key"
@@ -133,8 +147,26 @@ vi.mock('./components/ManagerConfigPanel', () => ({
   ),
 }));
 
+vi.mock('@/features/authFiles/hooks/useAuthFilesData', () => ({
+  useAuthFilesData: () => ({
+    files: mocks.authFiles,
+    loading: false,
+    loadFiles: mocks.authFilesLoad,
+    batchPatchFields: mocks.authFilesBatchPatchFields,
+  }),
+}));
+
 vi.mock('@/components/config/DiffModal', () => ({
-  DiffModal: () => null,
+  DiffModal: ({
+    open,
+    onConfirm,
+  }: {
+    open: boolean;
+    onConfirm: () => Promise<void>;
+  }) => {
+    if (open) mocks.capturedDiffConfirm = onConfirm;
+    return null;
+  },
 }));
 
 vi.mock('@/components/config/ConfigSourceEditor', () => ({
@@ -215,6 +247,11 @@ vi.mock('@/hooks/useVisualConfig', () => ({
     visualValues: {
       apiKeysText: mocks.visualState.apiKeysText,
       redisUsageQueueRetentionSeconds: '60',
+      streaming: {
+        keepaliveSeconds: '15',
+        bootstrapRetries: '3',
+        nonstreamKeepaliveInterval: '15',
+      },
     },
     visualDirty: mocks.visualState.dirty,
     visualParseError: null,
@@ -295,6 +332,7 @@ const originalDocument = globalThis.document;
 
 type ConfirmationOptions = {
   onConfirm: () => void | Promise<void>;
+  onCancel?: () => void;
 };
 
 type Deferred<T> = {
@@ -410,6 +448,11 @@ beforeEach(() => {
   mocks.saveManagerConfig.mockResolvedValue(MANAGER_CONFIG_RESPONSE);
   mocks.capturedApiKeyOperationStart = null;
   mocks.capturedApiKeyOperationEnd = null;
+  mocks.capturedEnableMissingClaudeStableUserIds = null;
+  mocks.authFilesLoad.mockResolvedValue([]);
+  mocks.authFilesBatchPatchFields.mockResolvedValue({ success: 0, failed: 0, failedNames: [] });
+  mocks.authFiles = [];
+  mocks.capturedDiffConfirm = null;
   mocks.loadVisualValuesFromYaml.mockReturnValue({ ok: true });
   mocks.applyVisualChangesToYaml.mockImplementation((yaml: string) => yaml);
   mocks.commitApiKeysText.mockImplementation((apiKeysText: string) => {
@@ -809,6 +852,65 @@ describe('ConfigPage API-key replace preflight', () => {
     expect((mocks.apiKeyMutationErrors[0] as Error & { code?: string }).code).toBe(
       'api_key_duplicate'
     );
+  });
+});
+
+describe('ConfigPage Claude stable user ID maintenance', () => {
+  it('does not load credentials until the maintenance action is clicked', async () => {
+    await mountPage();
+    expect(mocks.authFilesLoad).not.toHaveBeenCalled();
+
+    await click('enable-missing-claude-user-ids');
+    expect(mocks.authFilesLoad).toHaveBeenCalledWith({ throwOnError: true });
+  });
+
+  it('patches only non-runtime Claude credentials without an explicit setting', async () => {
+    mocks.authFilesLoad.mockResolvedValue([
+      { name: 'missing.json', type: 'claude', provider: 'claude', runtimeOnly: false },
+      { name: 'enabled.json', type: 'claude', provider: 'claude', runtimeOnly: false, cloak_cache_user_id: true },
+      { name: 'disabled.json', type: 'claude', provider: 'claude', runtimeOnly: false, cloak_cache_user_id: false },
+      { name: 'runtime.json', type: 'claude', provider: 'claude', runtimeOnly: true },
+      { name: 'other.json', type: 'codex', provider: 'codex', runtimeOnly: false },
+    ]);
+    await mountPage();
+
+    await click('enable-missing-claude-user-ids');
+
+    expect(mocks.authFilesBatchPatchFields).toHaveBeenCalledWith(
+      [expect.objectContaining({ name: 'missing.json' })],
+      { cloak_cache_user_id: 'true' }
+    );
+  });
+
+  it('reports no changes without patching when every credential is explicit', async () => {
+    mocks.authFilesLoad.mockResolvedValue([
+      { name: 'enabled.json', type: 'claude', provider: 'claude', cloak_cache_user_id: true },
+      { name: 'disabled.json', type: 'claude', provider: 'claude', cloak_cache_user_id: false },
+    ]);
+    await mountPage();
+
+    await click('enable-missing-claude-user-ids');
+
+    expect(mocks.authFilesBatchPatchFields).not.toHaveBeenCalled();
+    expect(mocks.showNotification).toHaveBeenCalledWith(
+      'config_management.visual.sections.auth.claude_stable_user_id_no_changes',
+      'info'
+    );
+  });
+
+  it('works while visual or source configuration has unsaved changes', async () => {
+    mocks.visualState.dirty = true;
+    mocks.authFilesLoad.mockResolvedValue([
+      { name: 'missing.json', type: 'claude', provider: 'claude', runtimeOnly: false },
+    ]);
+    await mountPage();
+
+    await click('enable-missing-claude-user-ids');
+
+    expect(mocks.authFilesBatchPatchFields).toHaveBeenCalled();
+    expect(mocks.fetchConfigYaml).toHaveBeenCalledTimes(1);
+    expect(mocks.saveConfigYaml).not.toHaveBeenCalled();
+    expect(mocks.showConfirmation).not.toHaveBeenCalled();
   });
 });
 

@@ -855,11 +855,13 @@ type EventRow struct {
 	ReasoningEffort        string                        `json:"reasoning_effort,omitempty"`
 	ServiceTier            string                        `json:"service_tier,omitempty"`
 	ExecutorType           string                        `json:"executor_type,omitempty"`
+	RawInputTokens         int64                         `json:"raw_input_tokens"`
 	InputTokens            int64                         `json:"input_tokens"`
 	OutputTokens           int64                         `json:"output_tokens"`
 	CachedTokens           int64                         `json:"cached_tokens"`
 	CacheReadTokens        int64                         `json:"cache_read_tokens"`
 	CacheCreationTokens    int64                         `json:"cache_creation_tokens"`
+	CacheUsageSource       string                        `json:"cache_usage_source,omitempty"`
 	ReasoningTokens        int64                         `json:"reasoning_tokens"`
 	TotalTokens            int64                         `json:"total_tokens"`
 	LatencyMS              *int64                        `json:"latency_ms"`
@@ -3571,11 +3573,13 @@ func buildEvents(page store.EventsPage, totalCount int64) *EventsResponse {
 			ReasoningEffort:        item.ReasoningEffort,
 			ServiceTier:            item.ServiceTier,
 			ExecutorType:           item.ExecutorType,
+			RawInputTokens:         item.RawInputTokens,
 			InputTokens:            item.InputTokens,
 			OutputTokens:           item.OutputTokens,
 			CachedTokens:           item.CachedTokens,
 			CacheReadTokens:        item.CacheReadTokens,
 			CacheCreationTokens:    item.CacheCreationTokens,
+			CacheUsageSource:       item.CacheUsageSource,
 			ReasoningTokens:        item.ReasoningTokens,
 			TotalTokens:            item.TotalTokens,
 			LatencyMS:              nullableInt(item.LatencyMS.Valid, item.LatencyMS.Int64),

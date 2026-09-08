@@ -28,6 +28,10 @@ import type { ApiKeyMutation } from '@/components/config/ApiKeysCardEditor';
 import { DiffModal } from '@/components/config/DiffModal';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useVisualConfig } from '@/hooks/useVisualConfig';
+import { useAuthFilesData } from '@/features/authFiles/hooks/useAuthFilesData';
+import { isRuntimeOnlyAuthFile } from '@/features/authFiles/constants';
+import { getAuthFilePatchTarget } from '@/features/authFiles/model/credentialStatus';
+import { hasExplicitClaudeCloakCacheUserId } from '@/features/authFiles/model/authFileConfiguration';
 import {
   useNotificationStore,
   useAuthStore,
@@ -36,6 +40,7 @@ import {
   useUsageServiceStore,
 } from '@/stores';
 import { configFileApi } from '@/services/api/configFile';
+import { hasCacheTokenAdjustmentValidationErrors } from '@/utils/cacheTokenAdjustment';
 import { apiKeysApi } from '@/services/api/apiKeys';
 import {
   getUsageServiceErrorCode,
@@ -48,9 +53,11 @@ import {
 } from '@/services/api/usageService';
 import { detectApiBaseFromLocation } from '@/utils/connection';
 import { ManagerConfigPanel } from './components/ManagerConfigPanel';
+import { CacheTokenAdjustmentPanel } from './components/CacheTokenAdjustmentPanel';
 import styles from './ConfigPage.module.scss';
 
-type ConfigEditorTab = 'visual' | 'source' | 'manager';
+type ConfigEditorTab = 'visual' | 'cache' | 'source' | 'manager';
+type ConfigPreviewTab = 'visual' | 'source';
 export type ManagerBindingStatus = 'unknown' | 'unconfigured' | 'matched';
 
 const MANAGER_COLLECTOR_DEFAULT = {
@@ -65,7 +72,6 @@ const MANAGER_COLLECTOR_DEFAULT = {
 };
 
 const CONFIG_TAB_STORAGE_KEY = 'config-management:tab';
-
 // eslint-disable-next-line react-refresh/only-export-components
 export function resolveManagerRequestAuthKey({
   panelHostedByUsageService,
@@ -356,9 +362,15 @@ export function ConfigPage() {
     commitApiKeysText,
   } = useVisualConfig();
 
+  const cacheTokenAdjustmentInvalid = hasCacheTokenAdjustmentValidationErrors(
+    visualValues.cacheTokenAdjustment
+  );
+
   const [activeTab, setActiveTab] = useState<ConfigEditorTab>(() => {
     const saved = localStorage.getItem(CONFIG_TAB_STORAGE_KEY);
-    if (saved === 'visual' || saved === 'source' || saved === 'manager') return saved;
+    if (saved === 'visual' || saved === 'cache' || saved === 'source' || saved === 'manager') {
+      return saved;
+    }
     return 'visual';
   });
 
@@ -374,7 +386,7 @@ export function ConfigPage() {
   const [serverYaml, setServerYaml] = useState('');
   const [mergedYaml, setMergedYaml] = useState('');
   const [previewServerYaml, setPreviewServerYaml] = useState('');
-  const [previewTab, setPreviewTab] = useState<ConfigEditorTab>('visual');
+  const [previewTab, setPreviewTab] = useState<ConfigPreviewTab>('visual');
   const [managerConfig, setManagerConfig] = useState<ManagerConfig | null>(null);
   const [managerConfigSource, setManagerConfigSource] = useState('');
   const [managerCPAUsage, setManagerCPAUsage] = useState<CPAUsageConfig | null>(null);
@@ -425,13 +437,17 @@ export function ConfigPage() {
   const shouldRenderFloatingActions = isCurrentLayer;
   const hasVisualModeError = !!visualParseError;
   const hasVisualValidationErrors =
-    activeTab === 'visual' &&
+    (activeTab === 'visual' || activeTab === 'cache') &&
     (Object.values(visualValidationErrors).some(Boolean) || visualHasPayloadValidationErrors);
   const managerRetentionSeconds =
     managerCPAUsage?.redisUsageQueueRetentionSeconds ||
     Number(visualValues.redisUsageQueueRetentionSeconds) ||
     60;
   const detectedPanelBase = useMemo(() => detectApiBaseFromLocation(), []);
+  const authFilesData = useAuthFilesData({
+    connectionFingerprint: detectedPanelBase,
+  });
+  const { batchFieldsUpdating, batchPatchFields, loadFiles } = authFilesData;
   const managerCollectorModeOptions = useMemo(
     () => [
       { value: 'auto', label: t('config_management.manager.collector_mode_auto') },
@@ -859,7 +875,7 @@ export function ConfigPage() {
   );
 
   useEffect(() => {
-    if (activeTab !== 'visual' || !visualParseError) return;
+    if ((activeTab !== 'visual' && activeTab !== 'cache') || !visualParseError) return;
 
     setActiveTab('source');
     localStorage.setItem(CONFIG_TAB_STORAGE_KEY, 'source');
@@ -873,6 +889,42 @@ export function ConfigPage() {
     if (activeTab !== 'manager') return;
     void loadManagerConfig();
   }, [activeTab, loadManagerConfig]);
+
+  const handleEnableMissingClaudeStableUserIds = useCallback(async () => {
+    if (disableControls || batchFieldsUpdating) return;
+
+    try {
+      const files = await loadFiles({ throwOnError: true });
+      const targets = (files ?? [])
+        .filter(
+          (file) =>
+            !isRuntimeOnlyAuthFile(file) &&
+            String(file.provider ?? file.type ?? '')
+              .trim()
+              .toLowerCase() === 'claude' &&
+            !hasExplicitClaudeCloakCacheUserId(file)
+        )
+        .map(getAuthFilePatchTarget);
+
+      if (targets.length === 0) {
+        showNotification(
+          t('config_management.visual.sections.auth.claude_stable_user_id_no_changes'),
+          'info'
+        );
+        return;
+      }
+
+      await batchPatchFields(targets, { cloak_cache_user_id: 'true' });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '';
+      showNotification(
+        `${t('config_management.visual.sections.auth.claude_stable_user_id_failed')}${
+          message ? `: ${message}` : ''
+        }`,
+        'error'
+      );
+    }
+  }, [batchFieldsUpdating, batchPatchFields, disableControls, loadFiles, showNotification, t]);
 
   const handleConfirmSave = async () => {
     if (
@@ -1141,8 +1193,13 @@ export function ConfigPage() {
       return;
     }
 
-    if (activeTab === 'visual' && visualParseError) {
+    if ((activeTab === 'visual' || activeTab === 'cache') && visualParseError) {
       showNotification(t('config_management.visual_mode_save_blocked'), 'error');
+      return;
+    }
+
+    if (activeTab === 'cache' && cacheTokenAdjustmentInvalid) {
+      showNotification(t('config_management.cache_adjustment.validation_blocked'), 'error');
       return;
     }
 
@@ -1210,7 +1267,7 @@ export function ConfigPage() {
       setServerYaml(diffOriginal);
       setMergedYaml(nextMergedYaml);
       setPreviewServerYaml(latestServerYaml);
-      setPreviewTab(activeTab);
+      setPreviewTab(activeTab === 'source' ? 'source' : 'visual');
       setDiffModalOpen(true);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
@@ -1278,7 +1335,7 @@ export function ConfigPage() {
             setDirty(true);
           }
         }
-      } else {
+      } else if (activeTab !== 'visual' && activeTab !== 'cache') {
         const result = loadVisualValuesFromYaml(content);
         if (!result.ok) {
           showNotification(
@@ -1607,6 +1664,11 @@ export function ConfigPage() {
         disabled: saving || loading || managerSaving || apiKeyMutationInFlight,
       },
       {
+        id: 'cache',
+        label: t('config_management.tabs.cache'),
+        disabled: saving || loading || managerSaving || apiKeyMutationInFlight,
+      },
+      {
         id: 'source',
         label: t('config_management.tabs.source'),
         disabled: saving || loading || managerSaving || apiKeyMutationInFlight,
@@ -1702,10 +1764,32 @@ export function ConfigPage() {
               }}
             />
           ) : activeTab === 'visual' ? (
-            <VisualConfigEditor
-              values={visualValues}
-              validationErrors={visualValidationErrors}
-              hasPayloadValidationErrors={visualHasPayloadValidationErrors}
+            <>
+              <VisualConfigEditor
+                values={visualValues}
+                validationErrors={visualValidationErrors}
+                hasPayloadValidationErrors={visualHasPayloadValidationErrors}
+                disabled={
+                  disableControls ||
+                  loading ||
+                  saving ||
+                  managerSaving ||
+                  diffModalOpen ||
+                  apiKeyMutationInFlight
+                }
+                onChange={setVisualValues}
+                onPersistApiKeyMutation={persistApiKeyMutation}
+                onRefreshApiKeys={refreshApiKeys}
+                onApiKeyOperationStart={beginApiKeyOperation}
+                onApiKeyOperationEnd={endApiKeyOperation}
+                onEnableMissingClaudeStableUserIds={handleEnableMissingClaudeStableUserIds}
+                claudeStableUserIdUpdating={batchFieldsUpdating}
+                claudeStableUserIdDisabled={disableControls || batchFieldsUpdating}
+              />
+            </>
+          ) : activeTab === 'cache' ? (
+            <CacheTokenAdjustmentPanel
+              value={visualValues.cacheTokenAdjustment}
               disabled={
                 disableControls ||
                 loading ||
@@ -1714,11 +1798,7 @@ export function ConfigPage() {
                 diffModalOpen ||
                 apiKeyMutationInFlight
               }
-              onChange={setVisualValues}
-              onPersistApiKeyMutation={persistApiKeyMutation}
-              onRefreshApiKeys={refreshApiKeys}
-              onApiKeyOperationStart={beginApiKeyOperation}
-              onApiKeyOperationEnd={endApiKeyOperation}
+              onChange={(cacheTokenAdjustment) => setVisualValues({ cacheTokenAdjustment })}
             />
           ) : (
             <div className={styles.sourceWorkspace}>
@@ -1812,7 +1892,9 @@ export function ConfigPage() {
         original={serverYaml}
         modified={mergedYaml}
         onConfirm={handleConfirmSave}
-        onCancel={() => setDiffModalOpen(false)}
+        onCancel={() => {
+          setDiffModalOpen(false);
+        }}
         loading={saving}
       />
     </div>

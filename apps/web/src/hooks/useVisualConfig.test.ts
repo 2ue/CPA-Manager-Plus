@@ -59,9 +59,7 @@ describe('useVisualConfig', () => {
     });
 
     expect(harness.getCurrent().visualDirty).toBe(false);
-    expect(harness.getCurrent().applyVisualChangesToYaml(initialYaml)).toBe(
-      initialYaml
-    );
+    expect(harness.getCurrent().applyVisualChangesToYaml(initialYaml)).toBe(initialYaml);
     harness.unmount();
   });
 
@@ -84,9 +82,10 @@ describe('useVisualConfig', () => {
       harness.getCurrent().commitApiKeysText('old-key\nnew-key');
     });
 
-    const parsed = parseYaml(
-      harness.getCurrent().applyVisualChangesToYaml(latestYaml)
-    ) as { ['api-keys']?: string[]; ['proxy-url']?: string };
+    const parsed = parseYaml(harness.getCurrent().applyVisualChangesToYaml(latestYaml)) as {
+      ['api-keys']?: string[];
+      ['proxy-url']?: string;
+    };
     expect(parsed['proxy-url']).toBe('http://next-proxy.local:8080');
     expect(parsed['api-keys']).toEqual(['old-key', 'new-key']);
     expect(harness.getCurrent().visualDirty).toBe(true);
@@ -542,9 +541,9 @@ describe('useVisualConfig', () => {
       harness.getCurrent().setVisualValues({ redisUsageQueueRetentionSeconds: '0' });
     });
 
-    expect(
-      harness.getCurrent().visualValidationErrors.redisUsageQueueRetentionSeconds
-    ).toBe('retention_seconds_range');
+    expect(harness.getCurrent().visualValidationErrors.redisUsageQueueRetentionSeconds).toBe(
+      'retention_seconds_range'
+    );
     harness.unmount();
   });
 
@@ -687,6 +686,133 @@ describe('useVisualConfig', () => {
     expect(parsed['gpt-image-2-base-model']).toBe('gpt-5.4-mini');
     expect(parsed['video-result-auth-cache-ttl']).toBe('3h');
 
+    harness.unmount();
+  });
+
+  it('loads and saves cache accounting rules without losing unrelated YAML', () => {
+    const harness = mountUseVisualConfig();
+    const yaml = [
+      'debug: false',
+      'cache-token-adjustment:',
+      '  input:',
+      '    max-tokens: 100',
+      '    jitter-ratio: 1.1',
+      '  read:',
+      '    trigger: greater-than',
+      '    trigger-min: 4000',
+      '    multiplier: 1.1',
+      '    max-tokens: 500000',
+      '    clip-min-tokens: 12345',
+      '    clip-max-tokens: 65432',
+      '  output:',
+      '    enabled: false',
+      '    trigger: less-than',
+      '    trigger-max: 4000',
+      '',
+    ].join('\n');
+
+    act(() => {
+      expect(harness.getCurrent().loadVisualValuesFromYaml(yaml).ok).toBe(true);
+    });
+    expect(harness.getCurrent().visualValues.cacheTokenAdjustment).toEqual({
+      input: { enabled: true, maxTokens: '100', jitterRatio: '1.1' },
+      read: {
+        enabled: true,
+        trigger: 'greater-than',
+        triggerMin: '4000',
+        triggerMax: '',
+        multiplier: '1.1',
+        maxTokens: '500000',
+        clipMinTokens: '12345',
+        clipMaxTokens: '65432',
+      },
+      write: {
+        enabled: false,
+        trigger: '',
+        triggerMin: '',
+        triggerMax: '',
+        multiplier: '',
+        maxTokens: '',
+        clipMinTokens: '',
+        clipMaxTokens: '',
+      },
+      output: {
+        enabled: false,
+        trigger: 'less-than',
+        triggerMin: '',
+        triggerMax: '4000',
+        multiplier: '',
+        maxTokens: '',
+        clipMinTokens: '',
+        clipMaxTokens: '',
+      },
+    });
+
+    act(() => {
+      harness.getCurrent().setVisualValues({
+        cacheTokenAdjustment: {
+          ...harness.getCurrent().visualValues.cacheTokenAdjustment,
+          output: {
+            ...harness.getCurrent().visualValues.cacheTokenAdjustment.output,
+            enabled: true,
+            multiplier: '1.1',
+          },
+        },
+      });
+    });
+
+    const parsed = parseYaml(harness.getCurrent().applyVisualChangesToYaml(yaml)) as {
+      debug?: boolean;
+      'cache-token-adjustment'?: Record<string, unknown>;
+    };
+    expect(parsed.debug).toBe(false);
+    expect(parsed['cache-token-adjustment']).toEqual({
+      input: { enabled: true, 'max-tokens': 100, 'jitter-ratio': 1.1 },
+      read: {
+        enabled: true,
+        trigger: 'greater-than',
+        'trigger-min': 4000,
+        multiplier: 1.1,
+        'max-tokens': 500000,
+        'clip-min-tokens': 12345,
+        'clip-max-tokens': 65432,
+      },
+      output: {
+        enabled: true,
+        trigger: 'less-than',
+        'trigger-max': 4000,
+        multiplier: 1.1,
+      },
+    });
+
+    harness.unmount();
+  });
+
+  it('does not validate or persist output rules while output expansion is disabled', () => {
+    const harness = mountUseVisualConfig();
+    const yaml = ['debug: false', ''].join('\n');
+
+    act(() => {
+      expect(harness.getCurrent().loadVisualValuesFromYaml(yaml).ok).toBe(true);
+      harness.getCurrent().setVisualValues({
+        cacheTokenAdjustment: {
+          ...harness.getCurrent().visualValues.cacheTokenAdjustment,
+          output: {
+            ...harness.getCurrent().visualValues.cacheTokenAdjustment.output,
+            enabled: false,
+            maxTokens: '1000000',
+            clipMinTokens: '10',
+            clipMaxTokens: '1',
+          },
+        },
+      });
+    });
+
+    const parsed = parseYaml(harness.getCurrent().applyVisualChangesToYaml(yaml)) as Record<
+      string,
+      unknown
+    >;
+    expect(parsed['cache-token-adjustment']).toBeUndefined();
     harness.unmount();
   });
 });
