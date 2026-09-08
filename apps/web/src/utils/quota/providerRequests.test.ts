@@ -44,6 +44,7 @@ import {
 import { formatQuotaResetTime } from './formatters';
 import {
   buildXaiBillingSummary,
+  buildCodexQuotaWindows,
   fetchXaiQuota,
   fetchAntigravityQuota,
   fetchClaudeQuota,
@@ -74,6 +75,33 @@ beforeEach(() => {
   mocks.getSubscription.mockReset();
   mocks.getSubscription.mockResolvedValue(null);
   mocks.request.mockReset();
+});
+
+describe('buildCodexQuotaWindows', () => {
+  it('records progress provenance only for windows with observed usage', () => {
+    const windows = buildCodexQuotaWindows(
+      {
+        rate_limit: {
+          primary_window: { used_percent: 50, limit_window_seconds: 18_000 },
+          secondary_window: { limit_window_seconds: 604_800 },
+        },
+      },
+      t,
+      'plus',
+      1_000
+    );
+
+    expect(windows.find((window) => window.id === 'five-hour')).toMatchObject({
+      usedPercent: 50,
+      observedAtMs: 1_000,
+      quotaProgressObservedAtMs: 1_000,
+    });
+    expect(windows.find((window) => window.id === 'weekly')).toMatchObject({
+      usedPercent: null,
+      observedAtMs: 1_000,
+      quotaProgressObservedAtMs: null,
+    });
+  });
 });
 
 describe('fetchCodexQuota', () => {
@@ -1933,7 +1961,7 @@ describe('buildXaiBillingSummary', () => {
     });
   });
 
-  it('treats an omitted weekly percentage as zero only for a complete valid period', () => {
+  it('keeps omitted weekly usage unknown even when the period window is valid', () => {
     expect(
       buildXaiBillingSummary({
         currentPeriod: {
@@ -1942,7 +1970,7 @@ describe('buildXaiBillingSummary', () => {
           end: '2026-08-20T00:00:00Z',
         },
       })
-    ).toMatchObject({ periodType: 'weekly', usagePercent: 0 });
+    ).toMatchObject({ periodType: 'weekly', usagePercent: null });
 
     expect(
       buildXaiBillingSummary({
@@ -1952,6 +1980,17 @@ describe('buildXaiBillingSummary', () => {
         },
       })
     ).toMatchObject({ periodType: 'weekly', usagePercent: null });
+
+    expect(
+      buildXaiBillingSummary({
+        currentPeriod: {
+          type: 'USAGE_PERIOD_TYPE_WEEKLY',
+          start: '2026-08-13T00:00:00Z',
+          end: '2026-08-20T00:00:00Z',
+        },
+        creditUsagePercent: 0,
+      })
+    ).toMatchObject({ periodType: 'weekly', usagePercent: 0 });
   });
 
   it('treats nested protobuf zero placeholders as absent billing evidence', () => {
@@ -1971,7 +2010,7 @@ describe('buildXaiBillingSummary', () => {
     });
 
     expect(summary).toMatchObject({
-      usagePercent: 0,
+      usagePercent: null,
       usedCents: null,
       includedUsedCents: null,
       onDemandCapCents: null,
@@ -2078,6 +2117,30 @@ describe('buildXaiBillingSummary', () => {
       billingPeriodEnd: '2026-08-01T00:00:00Z',
     });
   });
+
+  it('does not treat zero on-demand evidence as a billing boundary', () => {
+    const summary = buildXaiBillingSummary({
+      currentPeriod: {
+        type: 'USAGE_PERIOD_TYPE_WEEKLY',
+        start: '2026-09-05T00:00:00Z',
+        end: '2026-09-12T00:00:00Z',
+      },
+      onDemandCap: { val: 0 },
+      onDemandUsed: { val: 0 },
+      billingPeriodStart: '2026-09-05T00:00:00Z',
+      billingPeriodEnd: '2026-09-12T00:00:00Z',
+    });
+
+    expect(summary).toMatchObject({
+      periodType: 'weekly',
+      usagePercent: null,
+      onDemandCapCents: 0,
+      onDemandUsedCents: 0,
+      usedCents: null,
+    });
+    expect(summary?.billingPeriodStart).toBeUndefined();
+    expect(summary?.billingPeriodEnd).toBeUndefined();
+  });
 });
 
 describe('mergeXaiBillingSummaries', () => {
@@ -2134,7 +2197,7 @@ describe('mergeXaiBillingSummaries', () => {
 
     expect(mergeXaiBillingSummaries(weekly, legacy)).toMatchObject({
       periodType: 'weekly',
-      usagePercent: 0,
+      usagePercent: null,
       monthlyLimitCents: 10_000,
       usedCents: 12_500,
       includedUsedCents: 10_000,
@@ -2143,6 +2206,37 @@ describe('mergeXaiBillingSummaries', () => {
       onDemandUsedCents: 2_500,
       onDemandUsedPercent: 50,
       billingPeriodEnd: '2026-09-01T00:00:00Z',
+    });
+  });
+
+  it('keeps weekly and monthly billing reset boundaries separate', () => {
+    const weekly = buildXaiBillingSummary({
+      currentPeriod: {
+        type: 'USAGE_PERIOD_TYPE_WEEKLY',
+        start: '2026-09-05T00:00:00Z',
+        end: '2026-09-12T00:00:00Z',
+      },
+      onDemandCap: { val: 0 },
+      onDemandUsed: { val: 0 },
+      billingPeriodStart: '2026-09-05T00:00:00Z',
+      billingPeriodEnd: '2026-09-12T00:00:00Z',
+    });
+    const monthly = buildXaiBillingSummary({
+      monthlyLimit: { val: 0 },
+      used: { val: 0 },
+      billingPeriodStart: '2026-09-01T00:00:00Z',
+      billingPeriodEnd: '2026-10-01T00:00:00Z',
+    });
+
+    expect(mergeXaiBillingSummaries(weekly, monthly)).toMatchObject({
+      periodType: 'weekly',
+      usagePercent: null,
+      periodStart: '2026-09-05T00:00:00Z',
+      periodEnd: '2026-09-12T00:00:00Z',
+      monthlyLimitCents: 0,
+      billingPeriodStart: '2026-09-01T00:00:00Z',
+      billingPeriodEnd: '2026-10-01T00:00:00Z',
+      usedPercent: null,
     });
   });
 
