@@ -100,7 +100,12 @@ export interface InputTokenAdjustmentConfig {
   jitterRatio: string;
 }
 
-export interface OutputTokenAdjustmentConfig extends CacheTokenAdjustmentRule {}
+/**
+ * Output-token adjustment currently carries exactly the shared rule shape. It
+ * stays a named type so call sites keep reading as output-specific, and so the
+ * two can diverge later without touching them.
+ */
+export type OutputTokenAdjustmentConfig = CacheTokenAdjustmentRule;
 
 /**
  * Ephemeral cache lifetime forced on upstream requests.

@@ -92,6 +92,7 @@ const enSidebar: DefaultTheme.Sidebar = [
       { text: 'Quick Start', link: '/en/guide/getting-started' },
       { text: 'Install Lightweight Panel', link: '/en/deployment/cpa-panel' },
       { text: 'Install Full Mode', link: '/en/deployment/installer' },
+      { text: 'Linux Source Deployment', link: '/en/deployment/source-linux' },
     ],
   },
   {
