@@ -823,35 +823,39 @@ func aggregateModelStats(stats []store.ModelStat, prices map[string]store.ModelP
 
 func costForStat(stat store.ModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
+		PricingModel:              stat.PricingModel,
+		ContextThresholdTokens:    stat.ContextThresholdTokens,
+		InputTokens:               stat.InputTokens,
+		OutputTokens:              stat.OutputTokens,
+		CachedTokens:              stat.CachedTokens,
+		CacheReadTokens:           stat.CacheReadTokens,
+		CacheCreationTokens:       stat.CacheCreationTokens,
+		CacheCreation1hTokens:     stat.CacheCreation1hTokens,
+		LongInputTokens:           stat.LongInputTokens,
+		LongOutputTokens:          stat.LongOutputTokens,
+		LongCachedTokens:          stat.LongCachedTokens,
+		LongCacheReadTokens:       stat.LongCacheReadTokens,
+		LongCacheCreationTokens:   stat.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: stat.LongCacheCreation1hTokens,
 	}, prices)
 }
 
 func costForChannelStat(stat store.ChannelModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
+		PricingModel:              stat.PricingModel,
+		ContextThresholdTokens:    stat.ContextThresholdTokens,
+		InputTokens:               stat.InputTokens,
+		OutputTokens:              stat.OutputTokens,
+		CachedTokens:              stat.CachedTokens,
+		CacheReadTokens:           stat.CacheReadTokens,
+		CacheCreationTokens:       stat.CacheCreationTokens,
+		CacheCreation1hTokens:     stat.CacheCreation1hTokens,
+		LongInputTokens:           stat.LongInputTokens,
+		LongOutputTokens:          stat.LongOutputTokens,
+		LongCachedTokens:          stat.LongCachedTokens,
+		LongCacheReadTokens:       stat.LongCacheReadTokens,
+		LongCacheCreationTokens:   stat.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: stat.LongCacheCreation1hTokens,
 	}, prices)
 }
 

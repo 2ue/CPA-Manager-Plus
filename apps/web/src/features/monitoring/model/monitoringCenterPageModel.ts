@@ -127,7 +127,7 @@ export const getTodayStartInputValue = () => {
 
 export const getCurrentInputValue = () => formatDateTimeLocalValue(new Date());
 
-const formatFullNumber = (value: number, locale?: string) => {
+export const formatFullNumber = (value: number, locale?: string) => {
   const num = Number(value);
   if (!Number.isFinite(num)) return '0';
 

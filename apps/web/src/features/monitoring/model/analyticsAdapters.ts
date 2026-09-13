@@ -1070,6 +1070,8 @@ export const buildUsageDetailsFromAnalyticsEvents = (
         cached_tokens: item.cached_tokens,
         cache_read_tokens: item.cache_read_tokens ?? 0,
         cache_creation_tokens: item.cache_creation_tokens ?? 0,
+        cache_creation_5m_tokens: item.cache_creation_5m_tokens ?? 0,
+        cache_creation_1h_tokens: item.cache_creation_1h_tokens ?? 0,
         total_tokens: item.total_tokens,
       },
       failed: item.failed === true,

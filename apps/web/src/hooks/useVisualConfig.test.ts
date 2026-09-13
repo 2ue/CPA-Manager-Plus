@@ -689,7 +689,7 @@ describe('useVisualConfig', () => {
     harness.unmount();
   });
 
-  it('loads and saves cache accounting rules without losing unrelated YAML', () => {
+  it('treats a cache rule without an enabled key as disabled', () => {
     const harness = mountUseVisualConfig();
     const yaml = [
       'debug: false',
@@ -698,6 +698,322 @@ describe('useVisualConfig', () => {
       '    max-tokens: 100',
       '    jitter-ratio: 1.1',
       '  read:',
+      '    trigger: greater-than',
+      '    trigger-min: 4000',
+      '    multiplier: 1.1',
+      '  output:',
+      '    trigger: less-than',
+      '    trigger-max: 4000',
+      '',
+    ].join('\n');
+
+    act(() => {
+      expect(harness.getCurrent().loadVisualValuesFromYaml(yaml).ok).toBe(true);
+    });
+
+    // The backend only activates a rule on an explicit `enabled: true`, so the
+    // panel must not infer activation from the presence of other fields.
+    const loaded = harness.getCurrent().visualValues.cacheTokenAdjustment;
+    expect(loaded.input.enabled).toBe(false);
+    expect(loaded.read.enabled).toBe(false);
+    expect(loaded.write.enabled).toBe(false);
+    expect(loaded.output.enabled).toBe(false);
+    // The underlying values are still shown so nothing is lost in the editor.
+    expect(loaded.read.triggerMin).toBe('4000');
+    expect(loaded.input.maxTokens).toBe('100');
+
+    harness.unmount();
+  });
+
+  it('persists a disabled cache rule as enabled: false so it cannot be legacy-reactivated', () => {
+    const harness = mountUseVisualConfig();
+    const yaml = [
+      'debug: false',
+      'cache-token-adjustment:',
+      '  read:',
+      '    enabled: true',
+      '    trigger: greater-than',
+      '    trigger-min: 4000',
+      '    multiplier: 1.1',
+      '  write:',
+      '    enabled: true',
+      '    trigger: less-than',
+      '    trigger-max: 50',
+      '',
+    ].join('\n');
+
+    act(() => {
+      expect(harness.getCurrent().loadVisualValuesFromYaml(yaml).ok).toBe(true);
+    });
+
+    // Turn the read rule off while write stays on.
+    act(() => {
+      harness.getCurrent().setVisualValues({
+        cacheTokenAdjustment: {
+          ...harness.getCurrent().visualValues.cacheTokenAdjustment,
+          read: {
+            ...harness.getCurrent().visualValues.cacheTokenAdjustment.read,
+            enabled: false,
+          },
+        },
+      });
+    });
+
+    const parsed = parseYaml(harness.getCurrent().applyVisualChangesToYaml(yaml)) as {
+      'cache-token-adjustment'?: Record<string, Record<string, unknown>>;
+    };
+    const saved = parsed['cache-token-adjustment'];
+    // The read node must survive as an explicit false. If it were omitted while
+    // still carrying a trigger, the backend would re-enable it as a legacy rule.
+    expect(saved?.read).toEqual({ enabled: false });
+    expect(saved?.read?.trigger).toBeUndefined();
+    expect(saved?.write).toMatchObject({ enabled: true, trigger: 'less-than' });
+
+    harness.unmount();
+  });
+
+  it('resolves cache-ttl the way the gateway does', () => {
+    const harness = mountUseVisualConfig();
+    const load = (lines: string[]) => {
+      act(() => {
+        expect(harness.getCurrent().loadVisualValuesFromYaml(lines.join('\n')).ok).toBe(true);
+      });
+      return harness.getCurrent().visualValues.claudeCode.cacheTtl;
+    };
+
+    // No node at all: the feature was never configured, so nothing is forced.
+    expect(load(['debug: false', ''])).toBe('passthrough');
+
+    // Node present but no cache-ttl key: inert, same as enabled: false.
+    expect(
+      load(['debug: false', 'claude-code:', '  disable-cloaking-model-list: true', ''])
+    ).toBe('passthrough');
+
+    // The tier is inert unless enabled is explicitly true, even with a value.
+    expect(
+      load([
+        'debug: false',
+        'claude-code:',
+        '  cache-ttl:',
+        '    enabled: false',
+        '    value: 1h',
+        '',
+      ])
+    ).toBe('passthrough');
+
+    expect(
+      load([
+        'debug: false',
+        'claude-code:',
+        '  cache-ttl:',
+        '    enabled: true',
+        '    value: 5m',
+        '',
+      ])
+    ).toBe('5m');
+
+    // Enabled with an absent or unrecognised value still means something
+    // definite, and the gateway resolves both to 1h.
+    expect(
+      load(['debug: false', 'claude-code:', '  cache-ttl:', '    enabled: true', ''])
+    ).toBe('1h');
+    expect(
+      load([
+        'debug: false',
+        'claude-code:',
+        '  cache-ttl:',
+        '    enabled: true',
+        '    value: nonsense',
+        '',
+      ])
+    ).toBe('1h');
+
+    // The setting moved out of cache-token-adjustment and the gateway ignores
+    // it there, so the editor must not surface a selection that has no effect.
+    expect(
+      load([
+        'debug: false',
+        'cache-token-adjustment:',
+        '  cache-ttl:',
+        '    enabled: true',
+        '    value: 1h',
+        '',
+      ])
+    ).toBe('passthrough');
+
+    harness.unmount();
+  });
+
+  it('round-trips an explicit passthrough cache-ttl without flipping to 1h', () => {
+    const harness = mountUseVisualConfig();
+    const yaml = [
+      'debug: false',
+      'claude-code:',
+      '  cache-ttl:',
+      '    enabled: false',
+      '',
+    ].join('\n');
+
+    act(() => {
+      expect(harness.getCurrent().loadVisualValuesFromYaml(yaml).ok).toBe(true);
+    });
+    expect(harness.getCurrent().visualValues.claudeCode.cacheTtl).toBe('passthrough');
+
+    // Touch the selection and put it back so the section is dirty and rewritten.
+    act(() => {
+      harness.getCurrent().setVisualValues({ claudeCode: { cacheTtl: '1h' } });
+    });
+    act(() => {
+      harness.getCurrent().setVisualValues({ claudeCode: { cacheTtl: 'passthrough' } });
+    });
+
+    const parsed = parseYaml(harness.getCurrent().applyVisualChangesToYaml(yaml)) as {
+      'claude-code'?: Record<string, unknown>;
+    };
+    // Written as the gateway's struct, and kept explicit so the selection
+    // survives the round trip rather than being re-derived.
+    expect(parsed['claude-code']?.['cache-ttl']).toEqual({ enabled: false });
+
+    harness.unmount();
+  });
+
+  it('strips a stale cache-ttl left under cache-token-adjustment on save', () => {
+    const harness = mountUseVisualConfig();
+    const yaml = [
+      'debug: false',
+      'cache-token-adjustment:',
+      '  cache-ttl:',
+      '    enabled: true',
+      '    value: 1h',
+      '  read:',
+      '    enabled: true',
+      '    trigger: greater-than',
+      '    trigger-min: 4000',
+      '',
+    ].join('\n');
+
+    act(() => {
+      expect(harness.getCurrent().loadVisualValuesFromYaml(yaml).ok).toBe(true);
+    });
+
+    // Touch an unrelated rule so the section is dirty and gets rewritten.
+    act(() => {
+      harness.getCurrent().setVisualValues({
+        cacheTokenAdjustment: {
+          ...harness.getCurrent().visualValues.cacheTokenAdjustment,
+          read: {
+            ...harness.getCurrent().visualValues.cacheTokenAdjustment.read,
+            multiplier: '1.2',
+          },
+        },
+      });
+    });
+
+    const parsed = parseYaml(harness.getCurrent().applyVisualChangesToYaml(yaml)) as {
+      'cache-token-adjustment'?: Record<string, unknown>;
+    };
+    // The gateway ignores cache-ttl here, so leaving it in the file would be a
+    // setting that silently does nothing.
+    expect(parsed['cache-token-adjustment']?.['cache-ttl']).toBeUndefined();
+    expect(parsed['cache-token-adjustment']?.read).toMatchObject({ enabled: true });
+
+    harness.unmount();
+  });
+
+  it('writes a forced TTL under claude-code without creating a cache-token-adjustment node', () => {
+    const harness = mountUseVisualConfig();
+    const yaml = 'debug: false\n';
+
+    act(() => {
+      expect(harness.getCurrent().loadVisualValuesFromYaml(yaml).ok).toBe(true);
+    });
+    act(() => {
+      harness.getCurrent().setVisualValues({ claudeCode: { cacheTtl: '5m' } });
+    });
+
+    const parsed = parseYaml(harness.getCurrent().applyVisualChangesToYaml(yaml)) as {
+      'claude-code'?: Record<string, unknown>;
+      'cache-token-adjustment'?: unknown;
+    };
+    expect(parsed['claude-code']?.['cache-ttl']).toEqual({ enabled: true, value: '5m' });
+    // The TTL no longer keeps the reporting-only node alive.
+    expect(parsed['cache-token-adjustment']).toBeUndefined();
+
+    harness.unmount();
+  });
+
+  it('keeps an existing claude-code sibling when the TTL is written', () => {
+    const harness = mountUseVisualConfig();
+    const yaml = ['debug: false', 'claude-code:', '  disable-cloaking-model-list: true', ''].join(
+      '\n'
+    );
+
+    act(() => {
+      expect(harness.getCurrent().loadVisualValuesFromYaml(yaml).ok).toBe(true);
+    });
+    act(() => {
+      harness.getCurrent().setVisualValues({ claudeCode: { cacheTtl: '1h' } });
+    });
+
+    const parsed = parseYaml(harness.getCurrent().applyVisualChangesToYaml(yaml)) as {
+      'claude-code'?: Record<string, unknown>;
+    };
+    expect(parsed['claude-code']?.['cache-ttl']).toEqual({ enabled: true, value: '1h' });
+    // Writing the TTL must not clobber settings the editor does not manage.
+    expect(parsed['claude-code']?.['disable-cloaking-model-list']).toBe(true);
+
+    harness.unmount();
+  });
+
+  it('removes the cache-token-adjustment node once every rule is disabled', () => {
+    const harness = mountUseVisualConfig();
+    const yaml = [
+      'debug: false',
+      'cache-token-adjustment:',
+      '  read:',
+      '    enabled: true',
+      '    trigger: greater-than',
+      '    trigger-min: 4000',
+      '    multiplier: 1.1',
+      '',
+    ].join('\n');
+
+    act(() => {
+      expect(harness.getCurrent().loadVisualValuesFromYaml(yaml).ok).toBe(true);
+    });
+    act(() => {
+      harness.getCurrent().setVisualValues({
+        cacheTokenAdjustment: {
+          ...harness.getCurrent().visualValues.cacheTokenAdjustment,
+          read: {
+            ...harness.getCurrent().visualValues.cacheTokenAdjustment.read,
+            enabled: false,
+          },
+        },
+      });
+    });
+
+    const parsed = parseYaml(harness.getCurrent().applyVisualChangesToYaml(yaml)) as {
+      debug?: boolean;
+      'cache-token-adjustment'?: unknown;
+    };
+    expect(parsed['cache-token-adjustment']).toBeUndefined();
+    expect(parsed.debug).toBe(false);
+
+    harness.unmount();
+  });
+
+  it('loads and saves cache accounting rules without losing unrelated YAML', () => {
+    const harness = mountUseVisualConfig();
+    const yaml = [
+      'debug: false',
+      'cache-token-adjustment:',
+      '  input:',
+      '    enabled: true',
+      '    max-tokens: 100',
+      '    jitter-ratio: 1.1',
+      '  read:',
+      '    enabled: true',
       '    trigger: greater-than',
       '    trigger-min: 4000',
       '    multiplier: 1.1',
@@ -777,6 +1093,9 @@ describe('useVisualConfig', () => {
         'clip-min-tokens': 12345,
         'clip-max-tokens': 65432,
       },
+      // Disabled rules are persisted as an explicit `enabled: false` rather than
+      // being omitted, so the backend cannot treat them as legacy-enabled.
+      write: { enabled: false },
       output: {
         enabled: true,
         trigger: 'less-than',

@@ -137,6 +137,7 @@ func mergeStoredAggregate(
 		coalesce(sum(cached_tokens), 0),
 		coalesce(sum(cache_read_tokens), 0),
 		coalesce(sum(cache_creation_tokens), 0),
+		coalesce(sum(cache_creation_1h_tokens), 0),
 		coalesce(sum(total_tokens), 0),
 		coalesce(sum(zero_token_calls), 0),
 		coalesce(sum(latency_sum_ms), 0),
@@ -162,13 +163,14 @@ func mergeProjectedAggregate(
 		projectionCoverageEventID,
 		`p.failed, p.normalized_total_input_tokens, p.output_tokens,
 		p.reasoning_tokens, p.cached_tokens, p.cache_tokens,
-		p.cache_read_tokens, p.cache_creation_tokens, p.total_tokens,
+		p.cache_read_tokens, p.cache_creation_tokens, p.cache_creation_1h_tokens, p.total_tokens,
 		p.latency_ms`,
 		`coalesce(e.failed, 0),
 		coalesce(e.normalized_total_input_tokens, e.input_tokens, 0),
 		coalesce(e.output_tokens, 0), coalesce(e.reasoning_tokens, 0),
 		coalesce(e.cached_tokens, 0), coalesce(e.cache_tokens, 0),
 		coalesce(e.cache_read_tokens, 0), coalesce(e.cache_creation_tokens, 0),
+		coalesce(e.cache_creation_1h_tokens, 0),
 		coalesce(e.total_tokens, 0), e.latency_ms`,
 		eventSourceOptions{
 			AfterID:            options.AfterID,
@@ -190,6 +192,7 @@ func mergeProjectedAggregate(
 		coalesce(sum(max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0)), 0),
 		coalesce(sum(cache_read_tokens), 0),
 		coalesce(sum(cache_creation_tokens), 0),
+		coalesce(sum(cache_creation_1h_tokens), 0),
 		coalesce(sum(total_tokens), 0),
 		coalesce(sum(case when total_tokens = 0 and failed = 0 then 1 else 0 end), 0),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
@@ -211,6 +214,7 @@ func scanAggregateContribution(row *sql.Row, accumulator *dailyAggregateAccumula
 		&contribution.CachedTokens,
 		&contribution.CacheReadTokens,
 		&contribution.CacheCreationTokens,
+		&contribution.CacheCreation1hTokens,
 		&contribution.TotalTokens,
 		&contribution.ZeroTokenCalls,
 		&latencySumMS,
@@ -227,6 +231,7 @@ func scanAggregateContribution(row *sql.Row, accumulator *dailyAggregateAccumula
 	accumulator.value.CachedTokens += contribution.CachedTokens
 	accumulator.value.CacheReadTokens += contribution.CacheReadTokens
 	accumulator.value.CacheCreationTokens += contribution.CacheCreationTokens
+	accumulator.value.CacheCreation1hTokens += contribution.CacheCreation1hTokens
 	accumulator.value.TotalTokens += contribution.TotalTokens
 	accumulator.value.ZeroTokenCalls += contribution.ZeroTokenCalls
 	accumulator.latencySumMS += latencySumMS
@@ -325,9 +330,9 @@ func mergeStoredModelStats(
 		service_tier, sum(calls),
 		sum(case when failed = 0 then calls else 0 end),
 		sum(input_tokens), sum(output_tokens), sum(reasoning_tokens),
-		sum(cached_tokens), sum(cache_read_tokens), sum(cache_creation_tokens),
+		sum(cached_tokens), sum(cache_read_tokens), sum(cache_creation_tokens), sum(cache_creation_1h_tokens),
 		sum(long_input_tokens), sum(long_output_tokens), sum(long_cached_tokens),
-		sum(long_cache_read_tokens), sum(long_cache_creation_tokens),
+		sum(long_cache_read_tokens), sum(long_cache_creation_tokens), sum(long_cache_creation_1h_tokens),
 		sum(total_tokens)
 	from usage_monitoring_account_daily_rollups_v1
 	where `+strings.Join(conditions, " and ")+`
@@ -358,13 +363,14 @@ func mergeProjectedModelStats(
 		`p.requested_model as model, p.analytics_model, p.resolved_model, p.service_tier, p.failed,
 		p.normalized_total_input_tokens, p.output_tokens, p.reasoning_tokens,
 		p.cached_tokens, p.cache_tokens, p.cache_read_tokens,
-		p.cache_creation_tokens, p.total_tokens`,
+		p.cache_creation_tokens, p.cache_creation_1h_tokens, p.total_tokens`,
 		usageidentity.SQLEffectiveRequestedModelExpression("e.model", "e.requested_model")+`, `+usageidentity.SQLRequestAnalyticsModelExpression("e.model", "e.requested_model")+`, coalesce(e.resolved_model, ''),
 		coalesce(e.service_tier, ''), coalesce(e.failed, 0),
 		coalesce(e.normalized_total_input_tokens, e.input_tokens, 0),
 		coalesce(e.output_tokens, 0), coalesce(e.reasoning_tokens, 0),
 		coalesce(e.cached_tokens, 0), coalesce(e.cache_tokens, 0),
 		coalesce(e.cache_read_tokens, 0), coalesce(e.cache_creation_tokens, 0),
+		coalesce(e.cache_creation_1h_tokens, 0),
 		coalesce(e.total_tokens, 0)`,
 		eventSourceOptions{
 			AfterID:            options.AfterID,
@@ -384,11 +390,13 @@ func mergeProjectedModelStats(
 		coalesce(sum(output_tokens), 0), coalesce(sum(reasoning_tokens), 0),
 		coalesce(sum(compatible_cached_tokens_value), 0),
 		coalesce(sum(cache_read_tokens), 0), coalesce(sum(cache_creation_tokens), 0),
+		coalesce(sum(cache_creation_1h_tokens), 0),
 		coalesce(sum(case when normalized_total_input_tokens > ? then normalized_total_input_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_total_input_tokens > ? then output_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_total_input_tokens > ? then compatible_cached_tokens_value else 0 end), 0),
 		coalesce(sum(case when normalized_total_input_tokens > ? then cache_read_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_total_input_tokens > ? then cache_creation_tokens else 0 end), 0),
+		coalesce(sum(case when normalized_total_input_tokens > ? then cache_creation_1h_tokens else 0 end), 0),
 		coalesce(sum(total_tokens), 0)
 	from banded_events
 	group by analytics_model, billing_model_value, pricing_model_value,
@@ -419,11 +427,13 @@ func scanDailyModelStats(rows *sql.Rows, grouped map[dailyModelStatKey]*ModelSta
 			&row.CachedTokens,
 			&row.CacheReadTokens,
 			&row.CacheCreationTokens,
+			&row.CacheCreation1hTokens,
 			&row.LongInputTokens,
 			&row.LongOutputTokens,
 			&row.LongCachedTokens,
 			&row.LongCacheReadTokens,
 			&row.LongCacheCreationTokens,
+			&row.LongCacheCreation1hTokens,
 			&row.TotalTokens,
 		); err != nil {
 			return err
@@ -449,11 +459,13 @@ func scanDailyModelStats(rows *sql.Rows, grouped map[dailyModelStatKey]*ModelSta
 		entry.CachedTokens += row.CachedTokens
 		entry.CacheReadTokens += row.CacheReadTokens
 		entry.CacheCreationTokens += row.CacheCreationTokens
+		entry.CacheCreation1hTokens += row.CacheCreation1hTokens
 		entry.LongInputTokens += row.LongInputTokens
 		entry.LongOutputTokens += row.LongOutputTokens
 		entry.LongCachedTokens += row.LongCachedTokens
 		entry.LongCacheReadTokens += row.LongCacheReadTokens
 		entry.LongCacheCreationTokens += row.LongCacheCreationTokens
+		entry.LongCacheCreation1hTokens += row.LongCacheCreation1hTokens
 		entry.TotalTokens += row.TotalTokens
 	}
 	return rows.Err()

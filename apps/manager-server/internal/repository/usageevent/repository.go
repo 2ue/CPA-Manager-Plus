@@ -117,7 +117,8 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 		auth_type, auth_index, source, source_hash, api_key_hash,
 		account_snapshot, auth_label_snapshot, auth_file_snapshot, auth_provider_snapshot, auth_account_id_snapshot, auth_project_id_snapshot, auth_snapshot_at_ms,
 		requested_model, resolved_model, reasoning_effort, service_tier, request_service_tier, response_service_tier, cache_input_mode,
-		input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_tokens, cache_read_tokens, cache_creation_tokens, cache_usage_source, raw_input_tokens,
+		input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_tokens, cache_read_tokens, cache_creation_tokens,
+		cache_creation_5m_tokens, cache_creation_1h_tokens, cache_usage_source, raw_input_tokens,
 		normalized_uncached_input_tokens, normalized_total_input_tokens, normalized_cache_read_tokens, normalized_cache_creation_tokens, total_tokens,
 		latency_ms, ttft_ms, failed, fail_status_code, fail_summary,
 		response_metadata_json, header_quota_recover_at_ms, header_quota_used_percent, header_quota_plan_type, header_error_kind, header_error_code, header_trace_id,
@@ -129,7 +130,7 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 				?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 				?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 				?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-				?)`)
+				?, ?, ?)`)
 	if err != nil {
 		return model.InsertResult{}, err
 	}
@@ -174,6 +175,14 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 		event.NormalizedTotalInputTokens = accounting.TotalInputTokens
 		event.NormalizedCacheReadTokens = accounting.CacheReadTokens
 		event.NormalizedCacheCreationTokens = accounting.CacheCreationTokens
+		// Re-normalize here rather than trusting the parser: events also arrive
+		// through direct imports that never ran ParseEvent, and a tier pair that
+		// disagrees with the write total would misprice the request.
+		event.CacheCreation5mTokens, event.CacheCreation1hTokens = usage.NormalizeCacheCreationTiers(
+			event.CacheCreation5mTokens,
+			event.CacheCreation1hTokens,
+			event.CacheCreationTokens,
+		)
 		if event.TotalTokens <= 0 {
 			event.TotalTokens = accounting.TotalInputTokens + max(event.OutputTokens, int64(0)) + max(event.ReasoningTokens, int64(0))
 		}
@@ -238,6 +247,8 @@ func (r *repository) InsertBatch(ctx context.Context, events []model.UsageEvent)
 			event.CacheTokens,
 			event.CacheReadTokens,
 			event.CacheCreationTokens,
+			event.CacheCreation5mTokens,
+			event.CacheCreation1hTokens,
 			nullString(event.CacheUsageSource),
 			nullPositiveInt64(event.RawInputTokens),
 			event.NormalizedUncachedInputTokens,
@@ -314,6 +325,7 @@ func (r *repository) ListRecent(ctx context.Context, limit int) ([]model.UsageEv
 		account_snapshot, auth_label_snapshot, auth_file_snapshot, auth_provider_snapshot, auth_account_id_snapshot, auth_project_id_snapshot, auth_snapshot_at_ms,
 		requested_model, resolved_model, reasoning_effort, service_tier, request_service_tier, response_service_tier, cache_input_mode,
 		input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_tokens, cache_read_tokens, cache_creation_tokens,
+		coalesce(cache_creation_5m_tokens, 0), coalesce(cache_creation_1h_tokens, 0),
 		normalized_uncached_input_tokens, normalized_total_input_tokens, normalized_cache_read_tokens, normalized_cache_creation_tokens, total_tokens,
 		latency_ms, ttft_ms, failed, fail_status_code, fail_summary,
 		coalesce(response_metadata_json, ''), header_quota_recover_at_ms, header_quota_used_percent, coalesce(header_quota_plan_type, ''), coalesce(header_error_kind, ''), coalesce(header_error_code, ''), coalesce(header_trace_id, ''),
@@ -378,6 +390,8 @@ func (r *repository) ListRecent(ctx context.Context, limit int) ([]model.UsageEv
 			&event.CacheTokens,
 			&event.CacheReadTokens,
 			&event.CacheCreationTokens,
+			&event.CacheCreation5mTokens,
+			&event.CacheCreation1hTokens,
 			&normalizedUncachedInput,
 			&normalizedTotalInput,
 			&normalizedCacheRead,

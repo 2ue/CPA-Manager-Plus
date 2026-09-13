@@ -10,8 +10,9 @@ import type {
   CacheAdjustmentTrigger,
   CacheTokenAdjustmentConfig,
   CacheTokenAdjustmentRule,
+  CacheTtlMode,
 } from '@/types/visualConfig';
-import { DEFAULT_VISUAL_VALUES } from '@/types/visualConfig';
+import { DEFAULT_CACHE_TTL_MODE, DEFAULT_VISUAL_VALUES } from '@/types/visualConfig';
 import { normalizeRoutingStrategy } from '@/utils/routingStrategy';
 import {
   arePayloadFilterRulesEqual,
@@ -363,13 +364,11 @@ function parseCacheAdjustmentRule(raw: unknown): CacheTokenAdjustmentRule {
   const trigger = String(record.trigger ?? '')
     .trim()
     .toLowerCase();
-  const hasExplicitEnabled =
-    typeof record.enabled === 'boolean' || typeof record['enabled'] === 'boolean';
-  const hasRuleValues = trigger !== '';
   return {
-    enabled: hasExplicitEnabled
-      ? Boolean(record.enabled ?? record['enabled'])
-      : hasRuleValues,
+    // A rule counts as active only when enabled is explicitly true, matching the
+    // backend. Never infer it from a present trigger, or the panel would show a
+    // rule as on while the server treats it as off.
+    enabled: record.enabled === true,
     trigger: ['range', 'greater-than', 'less-than'].includes(trigger)
       ? (trigger as CacheAdjustmentTrigger)
       : '',
@@ -382,22 +381,56 @@ function parseCacheAdjustmentRule(raw: unknown): CacheTokenAdjustmentRule {
   };
 }
 
+/**
+ * Reads the forced cache TTL out of a `claude-code` node.
+ *
+ * The gateway models this as `cache-ttl: {enabled, value}` and resolves it in
+ * CacheTTLConfig.Resolved(): `enabled: false` (or an absent node) is
+ * passthrough, and `enabled: true` with a missing or unrecognised value means
+ * 1h. This mirrors that exactly — writing a bare string here would fail the
+ * gateway's YAML unmarshal into the struct and break its whole config load.
+ *
+ * A plain string is still accepted on read so a hand-edited config does not
+ * silently lose the operator's selection in the editor.
+ *
+ * Note this reads `claude-code` only. The setting used to live under
+ * `cache-token-adjustment`, and the gateway deliberately ignores it there, so
+ * reading the old location would show a selection the gateway never applies.
+ */
+function parseCacheTtlMode(record: Record<string, unknown> | null | undefined): CacheTtlMode {
+  if (!record) return 'passthrough';
+  const raw = record['cache-ttl'] ?? record.cacheTtl;
+  if (raw === undefined || raw === null) return 'passthrough';
+  const node = asRecord(raw);
+  if (node) {
+    // Matches the gateway: the tier is inert unless enabled is explicitly true.
+    if (node.enabled !== true) return 'passthrough';
+    return normalizeCacheTtlValue(node.value);
+  }
+  const normalized = String(raw).trim().toLowerCase();
+  if (!normalized || normalized === 'passthrough' || normalized === 'none') return 'passthrough';
+  return normalizeCacheTtlValue(raw);
+}
+
+/** Resolves a ttl value string, defaulting anything unrecognised to 1h. */
+function normalizeCacheTtlValue(raw: unknown): CacheTtlMode {
+  const normalized = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  if (normalized === '5m' || normalized === '5min' || normalized === '300s') return '5m';
+  // An enabled section with an absent or unrecognised value still has to mean
+  // something definite; 1h is the gateway's documented default.
+  return DEFAULT_CACHE_TTL_MODE;
+}
+
 function parseCacheTokenAdjustment(raw: unknown): CacheTokenAdjustmentConfig {
   const record = asRecord(raw);
   const input = asRecord(record?.input);
   const output = asRecord(record?.output);
-  const inputHasValues =
-    input?.['max-tokens'] !== undefined ||
-    input?.maxTokens !== undefined ||
-    input?.['jitter-ratio'] !== undefined ||
-    input?.jitterRatio !== undefined;
-  const inputHasExplicitEnabled =
-    typeof input?.enabled === 'boolean' || typeof input?.['enabled'] === 'boolean';
   return {
     input: {
-      enabled: inputHasExplicitEnabled
-        ? Boolean(input?.enabled ?? input?.['enabled'])
-        : inputHasValues,
+      // Explicit true only, matching the backend and the other rules.
+      enabled: input?.enabled === true,
       maxTokens: String(input?.['max-tokens'] ?? input?.maxTokens ?? ''),
       jitterRatio: String(input?.['jitter-ratio'] ?? input?.jitterRatio ?? ''),
     },
@@ -409,7 +442,13 @@ function parseCacheTokenAdjustment(raw: unknown): CacheTokenAdjustmentConfig {
 
 function serializeCacheAdjustmentRule(rule: CacheTokenAdjustmentRule): Record<string, unknown> {
   const output: Record<string, unknown> = {};
-  if (!rule.enabled) return output;
+  // Always emit `enabled` explicitly. Omitting a disabled rule's node would
+  // make the intent implicit, and the backend treats a missing `enabled` with a
+  // present `trigger` as legacy-enabled, which would silently re-enable it.
+  if (!rule.enabled) {
+    output.enabled = false;
+    return output;
+  }
   output.enabled = true;
   if (rule.trigger) output.trigger = rule.trigger;
   const integerFields: Array<[keyof CacheTokenAdjustmentRule, string]> = [
@@ -578,6 +617,9 @@ function mergeVisualConfigValues(
   if (patch.streaming) {
     nextValues.streaming = { ...currentValues.streaming, ...patch.streaming };
   }
+  if (patch.claudeCode) {
+    nextValues.claudeCode = { ...currentValues.claudeCode, ...patch.claudeCode };
+  }
   if (patch.cacheTokenAdjustment) {
     nextValues.cacheTokenAdjustment = {
       ...currentValues.cacheTokenAdjustment,
@@ -672,6 +714,10 @@ function getNextDirtyFields(
         baselineValues.cacheTokenAdjustment
       )
     );
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'claudeCode')) {
+    updateDirty('claudeCode', nextValues.claudeCode.cacheTtl === baselineValues.claudeCode.cacheTtl);
   }
 
   if (Object.prototype.hasOwnProperty.call(patch, 'host')) {
@@ -964,6 +1010,7 @@ export function useVisualConfig() {
       const payload = asRecord(parsed.payload);
       const streaming = asRecord(parsed.streaming);
       const cacheTokenAdjustment = parseCacheTokenAdjustment(parsed['cache-token-adjustment']);
+      const claudeCode = asRecord(parsed['claude-code']);
       const claudeHeaderDefaults = asRecord(parsed['claude-header-defaults']);
       const codexHeaderDefaults = asRecord(parsed['codex-header-defaults']);
       const codex = asRecord(parsed.codex);
@@ -1103,6 +1150,9 @@ export function useVisualConfig() {
           nonstreamKeepaliveInterval: String(parsed['nonstream-keepalive-interval'] ?? ''),
         },
         cacheTokenAdjustment,
+        claudeCode: {
+          cacheTtl: parseCacheTtlMode(claudeCode),
+        },
       };
 
       dispatch({ type: 'load_success', values: newValues });
@@ -1512,8 +1562,7 @@ export function useVisualConfig() {
           const cacheConfig = values.cacheTokenAdjustment;
           const readRule = serializeCacheAdjustmentRule(cacheConfig.read);
           const writeRule = serializeCacheAdjustmentRule(cacheConfig.write);
-          const inputRule: Record<string, unknown> = {};
-          if (cacheConfig.input.enabled) inputRule.enabled = true;
+          const inputRule: Record<string, unknown> = { enabled: cacheConfig.input.enabled };
           if (cacheConfig.input.enabled && /^\d+$/.test(cacheConfig.input.maxTokens.trim())) {
             inputRule['max-tokens'] = Number(cacheConfig.input.maxTokens.trim());
           }
@@ -1525,23 +1574,49 @@ export function useVisualConfig() {
             inputRule['jitter-ratio'] = Number(cacheConfig.input.jitterRatio);
           }
           const outputRule = serializeCacheAdjustmentRule(cacheConfig.output);
-          if (
-            Object.keys(readRule).length === 0 &&
-            Object.keys(writeRule).length === 0 &&
-            Object.keys(inputRule).length === 0 &&
-            Object.keys(outputRule).length === 0
-          ) {
+          const anyRuleEnabled =
+            cacheConfig.input.enabled ||
+            cacheConfig.read.enabled ||
+            cacheConfig.write.enabled ||
+            cacheConfig.output.enabled;
+          if (!anyRuleEnabled) {
+            // Every rule is off. Drop the whole node so the file stays clean;
+            // an absent node means "no adjustment", same as all-disabled.
             if (docHas(doc, ['cache-token-adjustment'])) {
               doc.deleteIn(['cache-token-adjustment']);
             }
           } else {
+            // At least one rule is on, so write every rule with its explicit
+            // enabled flag. Disabled siblings must stay present as
+            // `enabled: false` rather than be omitted, otherwise a stale rule
+            // left in the file would survive the save.
             doc.setIn(['cache-token-adjustment'], {
-              ...(Object.keys(inputRule).length > 0 ? { input: inputRule } : {}),
-              ...(Object.keys(readRule).length > 0 ? { read: readRule } : {}),
-              ...(Object.keys(writeRule).length > 0 ? { write: writeRule } : {}),
-              ...(Object.keys(outputRule).length > 0 ? { output: outputRule } : {}),
+              input: inputRule,
+              read: readRule,
+              write: writeRule,
+              output: outputRule,
             });
           }
+          // The forced TTL moved to claude-code. A value left behind in this
+          // node is ignored by the gateway, so strip it on save rather than
+          // leave a setting in the file that silently does nothing.
+          if (docHas(doc, ['cache-token-adjustment', 'cache-ttl'])) {
+            doc.deleteIn(['cache-token-adjustment', 'cache-ttl']);
+          }
+        }
+
+        if (isDirty('claudeCode')) {
+          // `cache-ttl` must be the gateway's {enabled, value} struct, not a
+          // bare string: CacheTTLConfig is a struct, so a scalar here would
+          // fail its YAML unmarshal and take down the whole config load.
+          // Passthrough is written as an explicit `enabled: false` rather
+          // than omitted so the selection survives a round trip.
+          const ttlForced = values.claudeCode.cacheTtl !== 'passthrough';
+          ensureMapInDoc(doc, ['claude-code']);
+          doc.setIn(
+            ['claude-code', 'cache-ttl'],
+            ttlForced ? { enabled: true, value: values.claudeCode.cacheTtl } : { enabled: false }
+          );
         }
 
         const payloadDirty =

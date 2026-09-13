@@ -631,3 +631,142 @@ func BenchmarkCostForModelWithExplicitServiceTier(b *testing.B) {
 		b.Fatal("cost = 0")
 	}
 }
+
+func TestCostForModelPricesUnreportedCacheTierSplitAtFiveMinuteRate(t *testing.T) {
+	prices := map[string]model.ModelPrice{
+		"claude-tiered": {Prompt: 3, Completion: 15, CacheRead: 0.3, CacheCreation: 3.75, CacheCreationConfigured: true},
+	}
+
+	// A zero 1h share means the upstream never reported the split, so the whole
+	// write must price at the 5m rate rather than being guessed into 1h.
+	cost := CostForModel("claude-tiered", ModelTokens{
+		InputTokens:         1_000_000,
+		CacheCreationTokens: 1_000_000,
+	}, prices)
+
+	if math.Abs(cost-3.75) > 0.000001 {
+		t.Fatalf("cost = %v, want 3.75", cost)
+	}
+}
+
+func TestCostForModelPricesOneHourCacheWriteAboveFiveMinuteRate(t *testing.T) {
+	prices := map[string]model.ModelPrice{
+		"claude-tiered": {Prompt: 3, Completion: 15, CacheRead: 0.3, CacheCreation: 3.75, CacheCreationConfigured: true},
+	}
+
+	// 1h writes bill at 2x prompt against the 5m pool's 1.25x, so a configured
+	// 5m rate of 3.75 implies 6.0 for the 1h pool.
+	cost := CostForModel("claude-tiered", ModelTokens{
+		InputTokens:           1_000_000,
+		CacheCreationTokens:   1_000_000,
+		CacheCreation1hTokens: 400_000,
+	}, prices)
+
+	want := 0.6*3.75 + 0.4*6.0
+	if math.Abs(cost-want) > 0.000001 {
+		t.Fatalf("cost = %v, want %v", cost, want)
+	}
+}
+
+func TestCostForModelPrefersConfiguredAboveOneHourCachePrice(t *testing.T) {
+	prices := map[string]model.ModelPrice{
+		"claude-tiered": {
+			Prompt: 3, Completion: 15, CacheRead: 0.3,
+			CacheCreation: 3.75, CacheCreationConfigured: true,
+			RawJSON: `{"cache_creation_input_token_cost":0.00000375,"cache_creation_input_token_cost_above_1hr":0.00000750}`,
+		},
+	}
+
+	// The feed publishes a 2x premium here rather than the default 1.6x, and the
+	// ratio is read from the entry so the vendor's own number wins.
+	cost := CostForModel("claude-tiered", ModelTokens{
+		InputTokens:           1_000_000,
+		CacheCreationTokens:   1_000_000,
+		CacheCreation1hTokens: 500_000,
+	}, prices)
+
+	want := 0.5*3.75 + 0.5*7.5
+	if math.Abs(cost-want) > 0.000001 {
+		t.Fatalf("cost = %v, want %v", cost, want)
+	}
+}
+
+func TestCacheTierRatioScalesWithContextTierOverride(t *testing.T) {
+	prices := map[string]model.ModelPrice{
+		"claude-tiered": {
+			Prompt: 3, Completion: 15, CacheRead: 0.3,
+			CacheCreation: 3.75, CacheCreationConfigured: true,
+			RawJSON: `{"cache_creation_input_token_cost":0.00000375,"cache_creation_input_token_cost_above_1hr":0.00000750}`,
+			ContextTiers: []model.ModelPriceContextTier{
+				{
+					ThresholdTokens: 272_000,
+					Prompt:          6, Completion: 22.5,
+					CacheCreation:           7.5,
+					PromptConfigured:        true,
+					CompletionConfigured:    true,
+					CacheCreationConfigured: true,
+				},
+			},
+		},
+	}
+
+	// The 1h premium is memoized as a ratio, so overriding the 5m rate in a
+	// context tier must scale the 1h rate with it instead of falling back to the
+	// base model's absolute number.
+	cost := CostForModel("claude-tiered", ModelTokens{
+		ContextThresholdTokens: 272_000,
+		InputTokens:            1_000_000,
+		CacheCreationTokens:    1_000_000,
+		CacheCreation1hTokens:  500_000,
+	}, prices)
+
+	want := 0.5*7.5 + 0.5*15.0
+	if math.Abs(cost-want) > 0.000001 {
+		t.Fatalf("cost = %v, want %v", cost, want)
+	}
+}
+
+func TestCacheTierSplitClampsToReportedCacheWrite(t *testing.T) {
+	prices := map[string]model.ModelPrice{
+		"claude-tiered": {Prompt: 3, Completion: 15, CacheRead: 0.3, CacheCreation: 3.75, CacheCreationConfigured: true},
+	}
+
+	// A 1h share larger than the write total would otherwise drive the derived
+	// 5m share negative and undercharge the request.
+	cost := CostForModel("claude-tiered", ModelTokens{
+		InputTokens:           1_000_000,
+		CacheCreationTokens:   1_000_000,
+		CacheCreation1hTokens: 4_000_000,
+	}, prices)
+
+	if math.Abs(cost-6.0) > 0.000001 {
+		t.Fatalf("cost = %v, want 6.0", cost)
+	}
+}
+
+func TestLegacyLongContextSplitsCacheWriteTiersAcrossSegments(t *testing.T) {
+	prices := map[string]model.ModelPrice{
+		"gpt-5.4": {
+			Prompt: 3, Completion: 15, CacheRead: 0.3,
+			CacheCreation: 3.75, CacheCreationConfigured: true,
+		},
+	}
+
+	// The long segment carries a 2x input multiplier, so each tier must be
+	// premium-priced in the long half and base-priced in the short half.
+	cost := CostForModel("gpt-5.4", ModelTokens{
+		InputTokens:               1_000_000,
+		CacheCreationTokens:       1_000_000,
+		CacheCreation1hTokens:     400_000,
+		LongInputTokens:           600_000,
+		LongCacheCreationTokens:   600_000,
+		LongCacheCreation1hTokens: 300_000,
+	}, prices)
+
+	short := 0.3*3.75 + 0.1*6.0
+	long := (0.3*3.75 + 0.3*6.0) * 2
+	want := short + long
+	if math.Abs(cost-want) > 0.000001 {
+		t.Fatalf("cost = %v, want %v", cost, want)
+	}
+}

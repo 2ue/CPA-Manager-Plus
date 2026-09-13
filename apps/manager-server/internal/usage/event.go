@@ -60,8 +60,15 @@ type Event struct {
 	CacheTokens         int64  `json:"cache_tokens"`
 	CacheReadTokens     int64  `json:"cache_read_tokens"`
 	CacheCreationTokens int64  `json:"cache_creation_tokens"`
-	CacheUsageSource    string `json:"cache_usage_source,omitempty"`
-	RawInputTokens      int64  `json:"-"`
+	// CacheCreation5mTokens and CacheCreation1hTokens split CacheCreationTokens
+	// by Anthropic's ephemeral cache TTL tiers, which bill at different rates
+	// (a 1h write costs 2x base input, a 5m write 1.25x). Both stay zero when
+	// the upstream reported no nested cache_creation object, and billing then
+	// falls back to treating CacheCreationTokens as all-5m.
+	CacheCreation5mTokens int64  `json:"cache_creation_5m_tokens,omitempty"`
+	CacheCreation1hTokens int64  `json:"cache_creation_1h_tokens,omitempty"`
+	CacheUsageSource      string `json:"cache_usage_source,omitempty"`
+	RawInputTokens        int64  `json:"-"`
 	// Normalized token buckets are persisted for aggregation and billing but are
 	// not exposed in compatible usage payloads.
 	NormalizedUncachedInputTokens int64  `json:"-"`
@@ -98,7 +105,11 @@ type Tokens struct {
 	CacheTokens         int64 `json:"cache_tokens"`
 	CacheReadTokens     int64 `json:"cache_read_tokens"`
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
-	TotalTokens         int64 `json:"total_tokens"`
+	// Omitted when zero so a request whose upstream never reported the nested
+	// cache_creation object is not shown as a measured all-5m split.
+	CacheCreation5mTokens int64 `json:"cache_creation_5m_tokens,omitempty"`
+	CacheCreation1hTokens int64 `json:"cache_creation_1h_tokens,omitempty"`
+	TotalTokens           int64 `json:"total_tokens"`
 }
 
 // LongContextTokens preserves the portions of token aggregates that came from
@@ -110,6 +121,10 @@ type LongContextTokens struct {
 	LongCachedTokens        int64
 	LongCacheReadTokens     int64
 	LongCacheCreationTokens int64
+	// LongCacheCreation1hTokens is the 1h ephemeral share of
+	// LongCacheCreationTokens. Zero means the split was never reported, which
+	// prices the whole long cache write at the 5m rate.
+	LongCacheCreation1hTokens int64
 }
 
 // PricingBand identifies the exact price rule used to aggregate a request.
@@ -120,7 +135,7 @@ type PricingBand struct {
 	ContextThresholdTokens int64
 }
 
-func (tokens *LongContextTokens) AddIfLongContext(input, output, cached, cacheRead, cacheCreation int64) {
+func (tokens *LongContextTokens) AddIfLongContext(input, output, cached, cacheRead, cacheCreation, cacheCreation1h int64) {
 	if tokens == nil || !IsLongContextInput(input) {
 		return
 	}
@@ -129,6 +144,7 @@ func (tokens *LongContextTokens) AddIfLongContext(input, output, cached, cacheRe
 	tokens.LongCachedTokens += cached
 	tokens.LongCacheReadTokens += cacheRead
 	tokens.LongCacheCreationTokens += cacheCreation
+	tokens.LongCacheCreation1hTokens += cacheCreation1h
 }
 
 type Detail struct {
@@ -537,6 +553,8 @@ func NormalizeRaw(raw []byte) (Event, error) {
 	}
 
 	inputTokens, outputTokens, reasoningTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens, totalTokens := readTokenFields(record)
+	reported5mTokens, reported1hTokens := readCacheCreationTierFields(record)
+	cacheCreation5mTokens, cacheCreation1hTokens := NormalizeCacheCreationTiers(reported5mTokens, reported1hTokens, cacheCreationTokens)
 	rawInputTokens := readNestedThenTopInt(record, []string{"raw_input_tokens", "rawInputTokens", "original_input_tokens", "originalInputTokens"})
 	cacheUsageSource := readString(record, "cache_usage_source", "cacheUsageSource")
 
@@ -622,6 +640,8 @@ func NormalizeRaw(raw []byte) (Event, error) {
 		CacheTokens:                   cacheTokens,
 		CacheReadTokens:               cacheReadTokens,
 		CacheCreationTokens:           cacheCreationTokens,
+		CacheCreation5mTokens:         cacheCreation5mTokens,
+		CacheCreation1hTokens:         cacheCreation1hTokens,
 		CacheUsageSource:              cacheUsageSource,
 		RawInputTokens:                rawInputTokens,
 		NormalizedUncachedInputTokens: cacheAccounting.UncachedInputTokens,
@@ -715,15 +735,17 @@ func BuildPayload(events []Event) Payload {
 			FailSummary:           event.FailSummary,
 			ResponseMetadata:      event.ResponseMetadata,
 			Tokens: Tokens{
-				InputTokens:         event.InputTokens,
-				RawInputTokens:      event.RawInputTokens,
-				OutputTokens:        event.OutputTokens,
-				ReasoningTokens:     event.ReasoningTokens,
-				CachedTokens:        compatCachedTokens,
-				CacheTokens:         compatCachedTokens,
-				CacheReadTokens:     event.CacheReadTokens,
-				CacheCreationTokens: event.CacheCreationTokens,
-				TotalTokens:         event.TotalTokens,
+				InputTokens:           event.InputTokens,
+				RawInputTokens:        event.RawInputTokens,
+				OutputTokens:          event.OutputTokens,
+				ReasoningTokens:       event.ReasoningTokens,
+				CachedTokens:          compatCachedTokens,
+				CacheTokens:           compatCachedTokens,
+				CacheReadTokens:       event.CacheReadTokens,
+				CacheCreationTokens:   event.CacheCreationTokens,
+				CacheCreation5mTokens: event.CacheCreation5mTokens,
+				CacheCreation1hTokens: event.CacheCreation1hTokens,
+				TotalTokens:           event.TotalTokens,
 			},
 		})
 	}
@@ -784,6 +806,66 @@ func readTokenFields(record map[string]any) (int64, int64, int64, int64, int64, 
 	})
 	total := readNestedThenTopInt(record, []string{"total_tokens", "totalTokens", "total"})
 	return input, output, reasoning, cached, cache, cacheRead, cacheCreation, total
+}
+
+// readCacheCreationTierFields reads Anthropic's ephemeral cache TTL split. CPA
+// forwards the flat cache_creation_5m_tokens/cache_creation_1h_tokens pair; the
+// nested cache_creation object names are accepted too so a raw Anthropic usage
+// payload imported directly still classifies. Both stay zero when the upstream
+// never reported the split, which billing reads as "unknown", not "all 5m".
+func readCacheCreationTierFields(record map[string]any) (int64, int64) {
+	tier5m := readNestedThenTopInt(record, []string{
+		"cache_creation_5m_tokens",
+		"cacheCreation5mTokens",
+		"ephemeral_5m_input_tokens",
+		"ephemeral5mInputTokens",
+	})
+	tier1h := readNestedThenTopInt(record, []string{
+		"cache_creation_1h_tokens",
+		"cacheCreation1hTokens",
+		"ephemeral_1h_input_tokens",
+		"ephemeral1hInputTokens",
+	})
+	if tier5m < 0 {
+		tier5m = 0
+	}
+	if tier1h < 0 {
+		tier1h = 0
+	}
+	return tier5m, tier1h
+}
+
+// NormalizeCacheCreationTiers reconciles a reported 5m/1h split with the write
+// total. It never invents a split: when the upstream reported no tiers the pair
+// stays zero and callers fall back to the aggregate. When the tiers disagree
+// with an explicitly positive aggregate they are rescaled to it, keeping the
+// reported ratio and letting the 1h tier absorb the rounding remainder so the
+// leftover token is never billed cheaper than it was measured.
+func NormalizeCacheCreationTiers(tier5m, tier1h, aggregate int64) (int64, int64) {
+	if tier5m < 0 {
+		tier5m = 0
+	}
+	if tier1h < 0 {
+		tier1h = 0
+	}
+	tierSum := tier5m + tier1h
+	if tierSum == 0 {
+		return 0, 0
+	}
+	if aggregate <= 0 {
+		return 0, 0
+	}
+	if tierSum == aggregate {
+		return tier5m, tier1h
+	}
+	scaled5m := int64(float64(tier5m) / float64(tierSum) * float64(aggregate))
+	if scaled5m < 0 {
+		scaled5m = 0
+	}
+	if scaled5m > aggregate {
+		scaled5m = aggregate
+	}
+	return scaled5m, aggregate - scaled5m
 }
 
 func readNestedThenTopInt(record map[string]any, keys []string) int64 {

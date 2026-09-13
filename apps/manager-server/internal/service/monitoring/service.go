@@ -829,38 +829,43 @@ type EventsResponse struct {
 }
 
 type EventRow struct {
-	RequestID              string                        `json:"request_id,omitempty"`
-	EventHash              string                        `json:"event_hash"`
-	TimestampMS            int64                         `json:"timestamp_ms"`
-	Model                  string                        `json:"model"`
-	AnalyticsModel         string                        `json:"analytics_model,omitempty"`
-	RequestedModel         string                        `json:"requested_model,omitempty"`
-	ResolvedModel          string                        `json:"resolved_model,omitempty"`
-	Endpoint               string                        `json:"endpoint"`
-	Method                 string                        `json:"method"`
-	Path                   string                        `json:"path"`
-	ClientIP               string                        `json:"client_ip,omitempty"`
-	XForwardedFor          string                        `json:"x_forwarded_for,omitempty"`
-	UserAgent              string                        `json:"user_agent,omitempty"`
-	AuthIndex              string                        `json:"auth_index"`
-	Source                 string                        `json:"source"`
-	SourceHash             string                        `json:"source_hash"`
-	APIKeyHash             string                        `json:"api_key_hash"`
-	AccountSnapshot        string                        `json:"account_snapshot"`
-	AuthLabelSnapshot      string                        `json:"auth_label_snapshot"`
-	AuthFileSnapshot       string                        `json:"auth_file_snapshot,omitempty"`
-	AuthProviderSnapshot   string                        `json:"auth_provider_snapshot"`
-	AuthAccountIDSnapshot  string                        `json:"auth_account_id_snapshot,omitempty"`
-	AuthProjectIDSnapshot  string                        `json:"auth_project_id_snapshot,omitempty"`
-	ReasoningEffort        string                        `json:"reasoning_effort,omitempty"`
-	ServiceTier            string                        `json:"service_tier,omitempty"`
-	ExecutorType           string                        `json:"executor_type,omitempty"`
-	RawInputTokens         int64                         `json:"raw_input_tokens"`
-	InputTokens            int64                         `json:"input_tokens"`
-	OutputTokens           int64                         `json:"output_tokens"`
-	CachedTokens           int64                         `json:"cached_tokens"`
-	CacheReadTokens        int64                         `json:"cache_read_tokens"`
-	CacheCreationTokens    int64                         `json:"cache_creation_tokens"`
+	RequestID             string `json:"request_id,omitempty"`
+	EventHash             string `json:"event_hash"`
+	TimestampMS           int64  `json:"timestamp_ms"`
+	Model                 string `json:"model"`
+	AnalyticsModel        string `json:"analytics_model,omitempty"`
+	RequestedModel        string `json:"requested_model,omitempty"`
+	ResolvedModel         string `json:"resolved_model,omitempty"`
+	Endpoint              string `json:"endpoint"`
+	Method                string `json:"method"`
+	Path                  string `json:"path"`
+	ClientIP              string `json:"client_ip,omitempty"`
+	XForwardedFor         string `json:"x_forwarded_for,omitempty"`
+	UserAgent             string `json:"user_agent,omitempty"`
+	AuthIndex             string `json:"auth_index"`
+	Source                string `json:"source"`
+	SourceHash            string `json:"source_hash"`
+	APIKeyHash            string `json:"api_key_hash"`
+	AccountSnapshot       string `json:"account_snapshot"`
+	AuthLabelSnapshot     string `json:"auth_label_snapshot"`
+	AuthFileSnapshot      string `json:"auth_file_snapshot,omitempty"`
+	AuthProviderSnapshot  string `json:"auth_provider_snapshot"`
+	AuthAccountIDSnapshot string `json:"auth_account_id_snapshot,omitempty"`
+	AuthProjectIDSnapshot string `json:"auth_project_id_snapshot,omitempty"`
+	ReasoningEffort       string `json:"reasoning_effort,omitempty"`
+	ServiceTier           string `json:"service_tier,omitempty"`
+	ExecutorType          string `json:"executor_type,omitempty"`
+	RawInputTokens        int64  `json:"raw_input_tokens"`
+	InputTokens           int64  `json:"input_tokens"`
+	OutputTokens          int64  `json:"output_tokens"`
+	CachedTokens          int64  `json:"cached_tokens"`
+	CacheReadTokens       int64  `json:"cache_read_tokens"`
+	CacheCreationTokens   int64  `json:"cache_creation_tokens"`
+	// Anthropic's ephemeral cache TTL split of CacheCreationTokens. Omitted
+	// when zero so a client can tell "no split reported" apart from a measured
+	// all-5m write and keep pricing the aggregate at the 5m rate.
+	CacheCreation5mTokens  int64                         `json:"cache_creation_5m_tokens,omitempty"`
+	CacheCreation1hTokens  int64                         `json:"cache_creation_1h_tokens,omitempty"`
 	CacheUsageSource       string                        `json:"cache_usage_source,omitempty"`
 	ReasoningTokens        int64                         `json:"reasoning_tokens"`
 	TotalTokens            int64                         `json:"total_tokens"`
@@ -1987,11 +1992,13 @@ func channelModelStatsFromAccountStats(stats []store.AccountModelStat) []store.C
 		entry.row.CachedTokens += stat.CachedTokens
 		entry.row.CacheReadTokens += stat.CacheReadTokens
 		entry.row.CacheCreationTokens += stat.CacheCreationTokens
+		entry.row.CacheCreation1hTokens += stat.CacheCreation1hTokens
 		entry.row.LongInputTokens += stat.LongInputTokens
 		entry.row.LongOutputTokens += stat.LongOutputTokens
 		entry.row.LongCachedTokens += stat.LongCachedTokens
 		entry.row.LongCacheReadTokens += stat.LongCacheReadTokens
 		entry.row.LongCacheCreationTokens += stat.LongCacheCreationTokens
+		entry.row.LongCacheCreation1hTokens += stat.LongCacheCreation1hTokens
 		entry.row.TotalTokens += stat.TotalTokens
 		if stat.LatencySamples > 0 {
 			entry.latencySumMS += stat.LatencySumMS
@@ -3583,6 +3590,8 @@ func buildEvents(page store.EventsPage, totalCount int64) *EventsResponse {
 			CachedTokens:           item.CachedTokens,
 			CacheReadTokens:        item.CacheReadTokens,
 			CacheCreationTokens:    item.CacheCreationTokens,
+			CacheCreation5mTokens:  item.CacheCreation5mTokens,
+			CacheCreation1hTokens:  item.CacheCreation1hTokens,
 			CacheUsageSource:       item.CacheUsageSource,
 			ReasoningTokens:        item.ReasoningTokens,
 			TotalTokens:            item.TotalTokens,
@@ -3760,16 +3769,18 @@ func buildAccountHistoryTotals(rows []store.AccountHistoryRollupRow, prices map[
 			[]string{row.BillingModel, row.Model},
 			row.ServiceTier,
 			pricing.ModelTokens{
-				InputTokens:             row.InputTokens,
-				OutputTokens:            row.OutputTokens,
-				CachedTokens:            row.CachedTokens,
-				CacheReadTokens:         row.CacheReadTokens,
-				CacheCreationTokens:     row.CacheCreationTokens,
-				LongInputTokens:         row.LongInputTokens,
-				LongOutputTokens:        row.LongOutputTokens,
-				LongCachedTokens:        row.LongCachedTokens,
-				LongCacheReadTokens:     row.LongCacheReadTokens,
-				LongCacheCreationTokens: row.LongCacheCreationTokens,
+				InputTokens:               row.InputTokens,
+				OutputTokens:              row.OutputTokens,
+				CachedTokens:              row.CachedTokens,
+				CacheReadTokens:           row.CacheReadTokens,
+				CacheCreationTokens:       row.CacheCreationTokens,
+				CacheCreation1hTokens:     row.CacheCreation1hTokens,
+				LongInputTokens:           row.LongInputTokens,
+				LongOutputTokens:          row.LongOutputTokens,
+				LongCachedTokens:          row.LongCachedTokens,
+				LongCacheReadTokens:       row.LongCacheReadTokens,
+				LongCacheCreationTokens:   row.LongCacheCreationTokens,
+				LongCacheCreation1hTokens: row.LongCacheCreation1hTokens,
 			},
 			prices,
 		)
@@ -3799,18 +3810,20 @@ func buildPricingAccountHistoryTotals(rows []store.UsagePricingAccountRow, price
 			[]string{row.BillingModel, row.Model},
 			row.ServiceTier,
 			pricing.ModelTokens{
-				PricingModel:            row.PricingModel,
-				ContextThresholdTokens:  row.ContextThresholdTokens,
-				InputTokens:             row.InputTokens,
-				OutputTokens:            row.OutputTokens,
-				CachedTokens:            row.CachedTokens,
-				CacheReadTokens:         row.CacheReadTokens,
-				CacheCreationTokens:     row.CacheCreationTokens,
-				LongInputTokens:         row.LongInputTokens,
-				LongOutputTokens:        row.LongOutputTokens,
-				LongCachedTokens:        row.LongCachedTokens,
-				LongCacheReadTokens:     row.LongCacheReadTokens,
-				LongCacheCreationTokens: row.LongCacheCreationTokens,
+				PricingModel:              row.PricingModel,
+				ContextThresholdTokens:    row.ContextThresholdTokens,
+				InputTokens:               row.InputTokens,
+				OutputTokens:              row.OutputTokens,
+				CachedTokens:              row.CachedTokens,
+				CacheReadTokens:           row.CacheReadTokens,
+				CacheCreationTokens:       row.CacheCreationTokens,
+				CacheCreation1hTokens:     row.CacheCreation1hTokens,
+				LongInputTokens:           row.LongInputTokens,
+				LongOutputTokens:          row.LongOutputTokens,
+				LongCachedTokens:          row.LongCachedTokens,
+				LongCacheReadTokens:       row.LongCacheReadTokens,
+				LongCacheCreationTokens:   row.LongCacheCreationTokens,
+				LongCacheCreation1hTokens: row.LongCacheCreation1hTokens,
 			},
 			prices,
 		)
@@ -4098,18 +4111,20 @@ func buildAccountWindowUsageTotals(rows []store.AccountWindowModelStat, prices m
 			[]string{row.BillingModel, row.Model},
 			row.ServiceTier,
 			pricing.ModelTokens{
-				PricingModel:            row.PricingModel,
-				ContextThresholdTokens:  row.ContextThresholdTokens,
-				InputTokens:             row.InputTokens,
-				OutputTokens:            row.OutputTokens,
-				CachedTokens:            row.CachedTokens,
-				CacheReadTokens:         row.CacheReadTokens,
-				CacheCreationTokens:     row.CacheCreationTokens,
-				LongInputTokens:         row.LongInputTokens,
-				LongOutputTokens:        row.LongOutputTokens,
-				LongCachedTokens:        row.LongCachedTokens,
-				LongCacheReadTokens:     row.LongCacheReadTokens,
-				LongCacheCreationTokens: row.LongCacheCreationTokens,
+				PricingModel:              row.PricingModel,
+				ContextThresholdTokens:    row.ContextThresholdTokens,
+				InputTokens:               row.InputTokens,
+				OutputTokens:              row.OutputTokens,
+				CachedTokens:              row.CachedTokens,
+				CacheReadTokens:           row.CacheReadTokens,
+				CacheCreationTokens:       row.CacheCreationTokens,
+				CacheCreation1hTokens:     row.CacheCreation1hTokens,
+				LongInputTokens:           row.LongInputTokens,
+				LongOutputTokens:          row.LongOutputTokens,
+				LongCachedTokens:          row.LongCachedTokens,
+				LongCacheReadTokens:       row.LongCacheReadTokens,
+				LongCacheCreationTokens:   row.LongCacheCreationTokens,
+				LongCacheCreation1hTokens: row.LongCacheCreation1hTokens,
 			},
 			prices,
 		)
@@ -4147,154 +4162,172 @@ func sumCost(stats []store.ModelStat, prices map[string]store.ModelPrice) float6
 
 func costForStat(stat store.ModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
+		PricingModel:              stat.PricingModel,
+		ContextThresholdTokens:    stat.ContextThresholdTokens,
+		InputTokens:               stat.InputTokens,
+		OutputTokens:              stat.OutputTokens,
+		CachedTokens:              stat.CachedTokens,
+		CacheReadTokens:           stat.CacheReadTokens,
+		CacheCreationTokens:       stat.CacheCreationTokens,
+		CacheCreation1hTokens:     stat.CacheCreation1hTokens,
+		LongInputTokens:           stat.LongInputTokens,
+		LongOutputTokens:          stat.LongOutputTokens,
+		LongCachedTokens:          stat.LongCachedTokens,
+		LongCacheReadTokens:       stat.LongCacheReadTokens,
+		LongCacheCreationTokens:   stat.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: stat.LongCacheCreation1hTokens,
 	}, prices)
 }
 
 func costForTimelinePoint(point store.TimelinePoint, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		PricingModel:            point.PricingModel,
-		ContextThresholdTokens:  point.ContextThresholdTokens,
-		InputTokens:             point.InputTokens,
-		OutputTokens:            point.OutputTokens,
-		CachedTokens:            point.CachedTokens,
-		CacheReadTokens:         point.CacheReadTokens,
-		CacheCreationTokens:     point.CacheCreationTokens,
-		LongInputTokens:         point.LongInputTokens,
-		LongOutputTokens:        point.LongOutputTokens,
-		LongCachedTokens:        point.LongCachedTokens,
-		LongCacheReadTokens:     point.LongCacheReadTokens,
-		LongCacheCreationTokens: point.LongCacheCreationTokens,
+		PricingModel:              point.PricingModel,
+		ContextThresholdTokens:    point.ContextThresholdTokens,
+		InputTokens:               point.InputTokens,
+		OutputTokens:              point.OutputTokens,
+		CachedTokens:              point.CachedTokens,
+		CacheReadTokens:           point.CacheReadTokens,
+		CacheCreationTokens:       point.CacheCreationTokens,
+		CacheCreation1hTokens:     point.CacheCreation1hTokens,
+		LongInputTokens:           point.LongInputTokens,
+		LongOutputTokens:          point.LongOutputTokens,
+		LongCachedTokens:          point.LongCachedTokens,
+		LongCacheReadTokens:       point.LongCacheReadTokens,
+		LongCacheCreationTokens:   point.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: point.LongCacheCreation1hTokens,
 	}, prices)
 }
 
 func costForHeatmapPoint(point store.HeatmapPoint, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		PricingModel:            point.PricingModel,
-		ContextThresholdTokens:  point.ContextThresholdTokens,
-		InputTokens:             point.InputTokens,
-		OutputTokens:            point.OutputTokens,
-		CachedTokens:            point.CachedTokens,
-		CacheReadTokens:         point.CacheReadTokens,
-		CacheCreationTokens:     point.CacheCreationTokens,
-		LongInputTokens:         point.LongInputTokens,
-		LongOutputTokens:        point.LongOutputTokens,
-		LongCachedTokens:        point.LongCachedTokens,
-		LongCacheReadTokens:     point.LongCacheReadTokens,
-		LongCacheCreationTokens: point.LongCacheCreationTokens,
+		PricingModel:              point.PricingModel,
+		ContextThresholdTokens:    point.ContextThresholdTokens,
+		InputTokens:               point.InputTokens,
+		OutputTokens:              point.OutputTokens,
+		CachedTokens:              point.CachedTokens,
+		CacheReadTokens:           point.CacheReadTokens,
+		CacheCreationTokens:       point.CacheCreationTokens,
+		CacheCreation1hTokens:     point.CacheCreation1hTokens,
+		LongInputTokens:           point.LongInputTokens,
+		LongOutputTokens:          point.LongOutputTokens,
+		LongCachedTokens:          point.LongCachedTokens,
+		LongCacheReadTokens:       point.LongCacheReadTokens,
+		LongCacheCreationTokens:   point.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: point.LongCacheCreation1hTokens,
 	}, prices)
 }
 
 func costForChannelStat(stat store.ChannelModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
+		PricingModel:              stat.PricingModel,
+		ContextThresholdTokens:    stat.ContextThresholdTokens,
+		InputTokens:               stat.InputTokens,
+		OutputTokens:              stat.OutputTokens,
+		CachedTokens:              stat.CachedTokens,
+		CacheReadTokens:           stat.CacheReadTokens,
+		CacheCreationTokens:       stat.CacheCreationTokens,
+		CacheCreation1hTokens:     stat.CacheCreation1hTokens,
+		LongInputTokens:           stat.LongInputTokens,
+		LongOutputTokens:          stat.LongOutputTokens,
+		LongCachedTokens:          stat.LongCachedTokens,
+		LongCacheReadTokens:       stat.LongCacheReadTokens,
+		LongCacheCreationTokens:   stat.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: stat.LongCacheCreation1hTokens,
 	}, prices)
 }
 
 func costForAccountModelStat(stat store.AccountModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
+		PricingModel:              stat.PricingModel,
+		ContextThresholdTokens:    stat.ContextThresholdTokens,
+		InputTokens:               stat.InputTokens,
+		OutputTokens:              stat.OutputTokens,
+		CachedTokens:              stat.CachedTokens,
+		CacheReadTokens:           stat.CacheReadTokens,
+		CacheCreationTokens:       stat.CacheCreationTokens,
+		CacheCreation1hTokens:     stat.CacheCreation1hTokens,
+		LongInputTokens:           stat.LongInputTokens,
+		LongOutputTokens:          stat.LongOutputTokens,
+		LongCachedTokens:          stat.LongCachedTokens,
+		LongCacheReadTokens:       stat.LongCacheReadTokens,
+		LongCacheCreationTokens:   stat.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: stat.LongCacheCreation1hTokens,
 	}, prices)
 }
 
 func costForAPIKeyModelStat(stat store.APIKeyModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
+		PricingModel:              stat.PricingModel,
+		ContextThresholdTokens:    stat.ContextThresholdTokens,
+		InputTokens:               stat.InputTokens,
+		OutputTokens:              stat.OutputTokens,
+		CachedTokens:              stat.CachedTokens,
+		CacheReadTokens:           stat.CacheReadTokens,
+		CacheCreationTokens:       stat.CacheCreationTokens,
+		CacheCreation1hTokens:     stat.CacheCreation1hTokens,
+		LongInputTokens:           stat.LongInputTokens,
+		LongOutputTokens:          stat.LongOutputTokens,
+		LongCachedTokens:          stat.LongCachedTokens,
+		LongCacheReadTokens:       stat.LongCacheReadTokens,
+		LongCacheCreationTokens:   stat.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: stat.LongCacheCreation1hTokens,
 	}, prices)
 }
 
 func costForCredentialModelStat(stat store.CredentialModelStat, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
+		PricingModel:              stat.PricingModel,
+		ContextThresholdTokens:    stat.ContextThresholdTokens,
+		InputTokens:               stat.InputTokens,
+		OutputTokens:              stat.OutputTokens,
+		CachedTokens:              stat.CachedTokens,
+		CacheReadTokens:           stat.CacheReadTokens,
+		CacheCreationTokens:       stat.CacheCreationTokens,
+		CacheCreation1hTokens:     stat.CacheCreation1hTokens,
+		LongInputTokens:           stat.LongInputTokens,
+		LongOutputTokens:          stat.LongOutputTokens,
+		LongCachedTokens:          stat.LongCachedTokens,
+		LongCacheReadTokens:       stat.LongCacheReadTokens,
+		LongCacheCreationTokens:   stat.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: stat.LongCacheCreation1hTokens,
 	}, prices)
 }
 
 func costForCredentialTimelinePoint(point store.CredentialTimelinePoint, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		PricingModel:            point.PricingModel,
-		ContextThresholdTokens:  point.ContextThresholdTokens,
-		InputTokens:             point.InputTokens,
-		OutputTokens:            point.OutputTokens,
-		CachedTokens:            point.CachedTokens,
-		CacheReadTokens:         point.CacheReadTokens,
-		CacheCreationTokens:     point.CacheCreationTokens,
-		LongInputTokens:         point.LongInputTokens,
-		LongOutputTokens:        point.LongOutputTokens,
-		LongCachedTokens:        point.LongCachedTokens,
-		LongCacheReadTokens:     point.LongCacheReadTokens,
-		LongCacheCreationTokens: point.LongCacheCreationTokens,
+		PricingModel:              point.PricingModel,
+		ContextThresholdTokens:    point.ContextThresholdTokens,
+		InputTokens:               point.InputTokens,
+		OutputTokens:              point.OutputTokens,
+		CachedTokens:              point.CachedTokens,
+		CacheReadTokens:           point.CacheReadTokens,
+		CacheCreationTokens:       point.CacheCreationTokens,
+		CacheCreation1hTokens:     point.CacheCreation1hTokens,
+		LongInputTokens:           point.LongInputTokens,
+		LongOutputTokens:          point.LongOutputTokens,
+		LongCachedTokens:          point.LongCachedTokens,
+		LongCacheReadTokens:       point.LongCacheReadTokens,
+		LongCacheCreationTokens:   point.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: point.LongCacheCreation1hTokens,
 	}, prices)
 }
 
 func costForAPIKeyTimelinePoint(point store.APIKeyTimelinePoint, prices map[string]store.ModelPrice) float64 {
 	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		PricingModel:            point.PricingModel,
-		ContextThresholdTokens:  point.ContextThresholdTokens,
-		InputTokens:             point.InputTokens,
-		OutputTokens:            point.OutputTokens,
-		CachedTokens:            point.CachedTokens,
-		CacheReadTokens:         point.CacheReadTokens,
-		CacheCreationTokens:     point.CacheCreationTokens,
-		LongInputTokens:         point.LongInputTokens,
-		LongOutputTokens:        point.LongOutputTokens,
-		LongCachedTokens:        point.LongCachedTokens,
-		LongCacheReadTokens:     point.LongCacheReadTokens,
-		LongCacheCreationTokens: point.LongCacheCreationTokens,
+		PricingModel:              point.PricingModel,
+		ContextThresholdTokens:    point.ContextThresholdTokens,
+		InputTokens:               point.InputTokens,
+		OutputTokens:              point.OutputTokens,
+		CachedTokens:              point.CachedTokens,
+		CacheReadTokens:           point.CacheReadTokens,
+		CacheCreationTokens:       point.CacheCreationTokens,
+		CacheCreation1hTokens:     point.CacheCreation1hTokens,
+		LongInputTokens:           point.LongInputTokens,
+		LongOutputTokens:          point.LongOutputTokens,
+		LongCachedTokens:          point.LongCachedTokens,
+		LongCacheReadTokens:       point.LongCacheReadTokens,
+		LongCacheCreationTokens:   point.LongCacheCreationTokens,
+		LongCacheCreation1hTokens: point.LongCacheCreation1hTokens,
 	}, prices)
 }
 

@@ -17,6 +17,7 @@ import {
   loadModelPrices,
   normalizeAnalyticsModel,
   normalizeCacheAccounting,
+  normalizeCacheCreationTiers,
   normalizeUsageSourceId,
 } from './usage';
 import { maskSensitiveText } from './format';
@@ -1506,5 +1507,142 @@ describe('model price storage', () => {
       expect.objectContaining({ mode: 'fast', serviceTier: 'priority', prompt: 12.5 }),
     ]);
     expect(prices['gpt-ambiguous'].serviceTiers).toBeUndefined();
+  });
+});
+
+describe('normalizeCacheCreationTiers', () => {
+  it('treats an absent split as tiers unknown rather than inventing one', () => {
+    // Rows older than the tier columns, and upstreams that never send the
+    // nested cache_creation object, both land here. Guessing a split would
+    // move tokens into the pricier 1h pool for free.
+    expect(normalizeCacheCreationTiers(0, 0, 1_000)).toEqual({ tokens5m: 0, tokens1h: 0 });
+    expect(normalizeCacheCreationTiers(undefined, undefined, 1_000)).toEqual({
+      tokens5m: 0,
+      tokens1h: 0,
+    });
+  });
+
+  it('passes an exact split through untouched', () => {
+    expect(normalizeCacheCreationTiers(600, 400, 1_000)).toEqual({ tokens5m: 600, tokens1h: 400 });
+  });
+
+  it('rescales a disagreeing split to the aggregate without dropping tokens', () => {
+    const tiers = normalizeCacheCreationTiers(300, 200, 1_000);
+    expect(tiers.tokens5m + tiers.tokens1h).toBe(1_000);
+    expect(tiers).toEqual({ tokens5m: 600, tokens1h: 400 });
+  });
+
+  it('gives the rounding remainder to the 1h tier', () => {
+    const tiers = normalizeCacheCreationTiers(1, 2, 100);
+    expect(tiers.tokens5m + tiers.tokens1h).toBe(100);
+    expect(tiers.tokens5m).toBe(33);
+    expect(tiers.tokens1h).toBe(67);
+  });
+
+  it('clamps negative and non-numeric inputs', () => {
+    expect(normalizeCacheCreationTiers(-5, 400, 400)).toEqual({ tokens5m: 0, tokens1h: 400 });
+    expect(normalizeCacheCreationTiers('x', 'y', 100)).toEqual({ tokens5m: 0, tokens1h: 0 });
+  });
+
+  it('reports nothing when the aggregate is zero', () => {
+    expect(normalizeCacheCreationTiers(600, 400, 0)).toEqual({ tokens5m: 0, tokens1h: 0 });
+  });
+});
+
+describe('calculateCost cache creation TTL tiers', () => {
+  // cache: 3 is the 5m write rate; prompt is present so the unconfigured
+  // fallback path is distinguishable from the configured one.
+  const tieredPrices = {
+    'claude-x': { prompt: 3, completion: 15, cache: 3.75, cacheCreation: 3.75, cacheRead: 0.3 },
+  };
+
+  it('prices an unreported split entirely at the 5m rate', () => {
+    const cost = calculateCost(
+      {
+        tokens: { input_tokens: 1_000_000, output_tokens: 0, cache_creation_tokens: 1_000_000 },
+        __modelName: 'claude-x',
+      },
+      tieredPrices
+    );
+    expect(cost).toBeCloseTo(3.75);
+  });
+
+  it('bills the 1h share above the 5m rate', () => {
+    const cost = calculateCost(
+      {
+        tokens: {
+          input_tokens: 1_000_000,
+          output_tokens: 0,
+          cache_creation_tokens: 1_000_000,
+          cache_creation_5m_tokens: 600_000,
+          cache_creation_1h_tokens: 400_000,
+        },
+        __modelName: 'claude-x',
+      },
+      tieredPrices
+    );
+    // 0.6 * 3.75 + 0.4 * (3.75 * 2 / 1.25) = 2.25 + 2.4
+    expect(cost).toBeCloseTo(0.6 * 3.75 + 0.4 * 6);
+  });
+
+  it('prefers a published above-1hr rate over the derived premium', () => {
+    const cost = calculateCost(
+      {
+        tokens: {
+          input_tokens: 1_000_000,
+          output_tokens: 0,
+          cache_creation_tokens: 1_000_000,
+          cache_creation_5m_tokens: 0,
+          cache_creation_1h_tokens: 1_000_000,
+        },
+        __modelName: 'claude-x',
+      },
+      {
+        'claude-x': {
+          ...tieredPrices['claude-x'],
+          rawJson: JSON.stringify({
+            // Per-token, like the rest of the raw entry: 7.5 per 1M.
+            cache_creation_input_token_cost_above_1hr: 7.5 / 1_000_000,
+          }),
+        },
+      }
+    );
+    expect(cost).toBeCloseTo(7.5);
+  });
+
+  it('accepts camelCase tier keys', () => {
+    const cost = calculateCost(
+      {
+        tokens: {
+          input_tokens: 1_000_000,
+          output_tokens: 0,
+          cache_creation_tokens: 1_000_000,
+          cacheCreation5mTokens: 0,
+          cacheCreation1hTokens: 1_000_000,
+        },
+        __modelName: 'claude-x',
+      },
+      tieredPrices
+    );
+    expect(cost).toBeCloseTo(6);
+  });
+
+  it('never bills more than the reported cache write total', () => {
+    // A 1h tier larger than the aggregate gets rescaled, so the two pools still
+    // sum to exactly the write total instead of over-billing.
+    const cost = calculateCost(
+      {
+        tokens: {
+          input_tokens: 1_000_000,
+          output_tokens: 0,
+          cache_creation_tokens: 1_000_000,
+          cache_creation_5m_tokens: 0,
+          cache_creation_1h_tokens: 5_000_000,
+        },
+        __modelName: 'claude-x',
+      },
+      tieredPrices
+    );
+    expect(cost).toBeCloseTo(6);
   });
 });

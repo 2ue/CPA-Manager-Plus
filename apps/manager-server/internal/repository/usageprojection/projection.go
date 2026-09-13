@@ -131,7 +131,7 @@ func upsertEvents(ctx context.Context, tx *sql.Tx, whereClause string, whereArgs
 		auth_provider_snapshot, auth_account_id_snapshot, auth_project_id_snapshot, reasoning_effort,
 		service_tier, failed, latency_ms, input_tokens, output_tokens,
 		reasoning_tokens, cached_tokens, cache_tokens, cache_read_tokens,
-		cache_creation_tokens, normalized_total_input_tokens, total_tokens,
+		cache_creation_tokens, cache_creation_1h_tokens, normalized_total_input_tokens, total_tokens,
 		header_quota_plan_type, header_error_kind, header_error_code,
 		header_trace_id, updated_at_ms
 	)
@@ -167,6 +167,7 @@ func upsertEvents(ctx context.Context, tx *sql.Tx, whereClause string, whereArgs
 		coalesce(cache_tokens, 0),
 		coalesce(cache_read_tokens, 0),
 		coalesce(cache_creation_tokens, 0),
+		coalesce(cache_creation_1h_tokens, 0),
 		coalesce(normalized_total_input_tokens, input_tokens, 0),
 		coalesce(total_tokens, 0),
 		coalesce(header_quota_plan_type, ''),
@@ -207,6 +208,7 @@ func upsertEvents(ctx context.Context, tx *sql.Tx, whereClause string, whereArgs
 		cache_tokens = excluded.cache_tokens,
 		cache_read_tokens = excluded.cache_read_tokens,
 		cache_creation_tokens = excluded.cache_creation_tokens,
+		cache_creation_1h_tokens = excluded.cache_creation_1h_tokens,
 		normalized_total_input_tokens = excluded.normalized_total_input_tokens,
 		total_tokens = excluded.total_tokens,
 		header_quota_plan_type = excluded.header_quota_plan_type,

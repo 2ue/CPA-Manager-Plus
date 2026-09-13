@@ -15,24 +15,25 @@ const dashboardHourMS int64 = 60 * 60 * 1000
 
 type DashboardHourlyRow struct {
 	usage.LongContextTokens
-	BucketMS            int64
-	Model               string
-	BillingModel        string
-	ServiceTier         string
-	Calls               int64
-	SuccessCalls        int64
-	FailureCalls        int64
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
-	LatencySumMS        int64
-	LatencySamples      int64
-	ZeroTokenCalls      int64
-	UpdatedAtMS         int64
+	BucketMS              int64
+	Model                 string
+	BillingModel          string
+	ServiceTier           string
+	Calls                 int64
+	SuccessCalls          int64
+	FailureCalls          int64
+	InputTokens           int64
+	OutputTokens          int64
+	ReasoningTokens       int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	TotalTokens           int64
+	LatencySumMS          int64
+	LatencySamples        int64
+	ZeroTokenCalls        int64
+	UpdatedAtMS           int64
 }
 
 type dashboardHourlyKey struct {
@@ -51,21 +52,22 @@ const (
 )
 
 type dashboardEventRow struct {
-	ID                  int64
-	TimestampMS         int64
-	Model               string
-	BillingModel        string
-	ServiceTier         string
-	Failed              bool
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CachedTokens        int64
-	CacheTokens         int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
-	LatencyMS           sql.NullInt64
+	ID                    int64
+	TimestampMS           int64
+	Model                 string
+	BillingModel          string
+	ServiceTier           string
+	Failed                bool
+	InputTokens           int64
+	OutputTokens          int64
+	ReasoningTokens       int64
+	CachedTokens          int64
+	CacheTokens           int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	TotalTokens           int64
+	LatencyMS             sql.NullInt64
 }
 
 func (r *repository) CatchUpDashboardHourly(ctx context.Context, limit int, nowMS int64) (CatchUpResult, error) {
@@ -236,11 +238,13 @@ func mergeStoredDashboardRows(
 		sum(cached_tokens),
 		sum(cache_read_tokens),
 		sum(cache_creation_tokens),
+		sum(cache_creation_1h_tokens),
 		sum(long_input_tokens),
 		sum(long_output_tokens),
 		sum(long_cached_tokens),
 		sum(long_cache_read_tokens),
 		sum(long_cache_creation_tokens),
+		sum(long_cache_creation_1h_tokens),
 		sum(total_tokens),
 		sum(latency_sum_ms),
 		sum(latency_samples),
@@ -290,11 +294,13 @@ func mergeRawDashboardRows(
 		coalesce(sum(%s), 0),
 		coalesce(sum(coalesce(e.cache_read_tokens, 0)), 0),
 		coalesce(sum(coalesce(e.cache_creation_tokens, 0)), 0),
+		coalesce(sum(coalesce(e.cache_creation_1h_tokens, 0)), 0),
 		coalesce(sum(case when %s > %d then %s else 0 end), 0),
 		coalesce(sum(case when %s > %d then coalesce(e.output_tokens, 0) else 0 end), 0),
 		coalesce(sum(case when %s > %d then %s else 0 end), 0),
 		coalesce(sum(case when %s > %d then coalesce(e.cache_read_tokens, 0) else 0 end), 0),
 		coalesce(sum(case when %s > %d then coalesce(e.cache_creation_tokens, 0) else 0 end), 0),
+		coalesce(sum(case when %s > %d then coalesce(e.cache_creation_1h_tokens, 0) else 0 end), 0),
 		coalesce(sum(coalesce(e.total_tokens, 0)), 0),
 		coalesce(sum(case when e.latency_ms is not null and e.latency_ms <> 0 then e.latency_ms else 0 end), 0),
 		count(nullif(e.latency_ms, 0)),
@@ -317,6 +323,8 @@ func mergeRawDashboardRows(
 		normalizedInputExpression,
 		usage.LongContextInputTokenThreshold,
 		compatibleCachedExpression,
+		normalizedInputExpression,
+		usage.LongContextInputTokenThreshold,
 		normalizedInputExpression,
 		usage.LongContextInputTokenThreshold,
 		normalizedInputExpression,
@@ -371,11 +379,13 @@ func scanAndMergeDashboardRows(rows *sql.Rows, grouped map[dashboardHourlyKey]*D
 			&row.CachedTokens,
 			&row.CacheReadTokens,
 			&row.CacheCreationTokens,
+			&row.CacheCreation1hTokens,
 			&row.LongInputTokens,
 			&row.LongOutputTokens,
 			&row.LongCachedTokens,
 			&row.LongCacheReadTokens,
 			&row.LongCacheCreationTokens,
+			&row.LongCacheCreation1hTokens,
 			&row.TotalTokens,
 			&row.LatencySumMS,
 			&row.LatencySamples,
@@ -411,11 +421,13 @@ func mergeDashboardRow(grouped map[dashboardHourlyKey]*DashboardHourlyRow, row D
 	entry.CachedTokens += row.CachedTokens
 	entry.CacheReadTokens += row.CacheReadTokens
 	entry.CacheCreationTokens += row.CacheCreationTokens
+	entry.CacheCreation1hTokens += row.CacheCreation1hTokens
 	entry.LongInputTokens += row.LongInputTokens
 	entry.LongOutputTokens += row.LongOutputTokens
 	entry.LongCachedTokens += row.LongCachedTokens
 	entry.LongCacheReadTokens += row.LongCacheReadTokens
 	entry.LongCacheCreationTokens += row.LongCacheCreationTokens
+	entry.LongCacheCreation1hTokens += row.LongCacheCreation1hTokens
 	entry.TotalTokens += row.TotalTokens
 	entry.LatencySumMS += row.LatencySumMS
 	entry.LatencySamples += row.LatencySamples
@@ -461,6 +473,7 @@ func dashboardEventsAfterCheckpoint(ctx context.Context, tx *sql.Tx, lastEventID
 	coalesce(cache_tokens, 0),
 	coalesce(cache_read_tokens, 0),
 	coalesce(cache_creation_tokens, 0),
+	coalesce(cache_creation_1h_tokens, 0),
 	coalesce(total_tokens, 0),
 	latency_ms
 from usage_events
@@ -490,6 +503,7 @@ limit ?`, lastEventID, targetEventID, limit)
 			&event.CacheTokens,
 			&event.CacheReadTokens,
 			&event.CacheCreationTokens,
+			&event.CacheCreation1hTokens,
 			&event.TotalTokens,
 			&event.LatencyMS,
 		); err != nil {
@@ -547,7 +561,8 @@ func aggregateDashboardHourly(events []dashboardEventRow, nowMS int64) []Dashboa
 		row.CachedTokens += event.CachedTokens
 		row.CacheReadTokens += event.CacheReadTokens
 		row.CacheCreationTokens += event.CacheCreationTokens
-		row.AddIfLongContext(event.InputTokens, event.OutputTokens, event.CachedTokens, event.CacheReadTokens, event.CacheCreationTokens)
+		row.CacheCreation1hTokens += event.CacheCreation1hTokens
+		row.AddIfLongContext(event.InputTokens, event.OutputTokens, event.CachedTokens, event.CacheReadTokens, event.CacheCreationTokens, event.CacheCreation1hTokens)
 		row.TotalTokens += event.TotalTokens
 		if event.LatencyMS.Valid && event.LatencyMS.Int64 != 0 {
 			row.LatencySumMS += event.LatencyMS.Int64
@@ -580,17 +595,19 @@ func upsertDashboardHourlyRows(ctx context.Context, tx *sql.Tx, rows []Dashboard
 	cached_tokens,
 	cache_read_tokens,
 	cache_creation_tokens,
+	cache_creation_1h_tokens,
 	long_input_tokens,
 	long_output_tokens,
 	long_cached_tokens,
 	long_cache_read_tokens,
 	long_cache_creation_tokens,
+	long_cache_creation_1h_tokens,
 	total_tokens,
 	latency_sum_ms,
 	latency_samples,
 	zero_token_calls,
 	updated_at_ms
-) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 on conflict(bucket_ms, model, billing_model, service_tier) do update set
 	calls = usage_dashboard_hourly_rollups.calls + excluded.calls,
 	success_calls = usage_dashboard_hourly_rollups.success_calls + excluded.success_calls,
@@ -601,11 +618,13 @@ on conflict(bucket_ms, model, billing_model, service_tier) do update set
 	cached_tokens = usage_dashboard_hourly_rollups.cached_tokens + excluded.cached_tokens,
 	cache_read_tokens = usage_dashboard_hourly_rollups.cache_read_tokens + excluded.cache_read_tokens,
 	cache_creation_tokens = usage_dashboard_hourly_rollups.cache_creation_tokens + excluded.cache_creation_tokens,
+	cache_creation_1h_tokens = usage_dashboard_hourly_rollups.cache_creation_1h_tokens + excluded.cache_creation_1h_tokens,
 	long_input_tokens = usage_dashboard_hourly_rollups.long_input_tokens + excluded.long_input_tokens,
 	long_output_tokens = usage_dashboard_hourly_rollups.long_output_tokens + excluded.long_output_tokens,
 	long_cached_tokens = usage_dashboard_hourly_rollups.long_cached_tokens + excluded.long_cached_tokens,
 	long_cache_read_tokens = usage_dashboard_hourly_rollups.long_cache_read_tokens + excluded.long_cache_read_tokens,
 	long_cache_creation_tokens = usage_dashboard_hourly_rollups.long_cache_creation_tokens + excluded.long_cache_creation_tokens,
+	long_cache_creation_1h_tokens = usage_dashboard_hourly_rollups.long_cache_creation_1h_tokens + excluded.long_cache_creation_1h_tokens,
 	total_tokens = usage_dashboard_hourly_rollups.total_tokens + excluded.total_tokens,
 	latency_sum_ms = usage_dashboard_hourly_rollups.latency_sum_ms + excluded.latency_sum_ms,
 	latency_samples = usage_dashboard_hourly_rollups.latency_samples + excluded.latency_samples,
@@ -632,11 +651,13 @@ on conflict(bucket_ms, model, billing_model, service_tier) do update set
 			row.CachedTokens,
 			row.CacheReadTokens,
 			row.CacheCreationTokens,
+			row.CacheCreation1hTokens,
 			row.LongInputTokens,
 			row.LongOutputTokens,
 			row.LongCachedTokens,
 			row.LongCacheReadTokens,
 			row.LongCacheCreationTokens,
+			row.LongCacheCreation1hTokens,
 			row.TotalTokens,
 			row.LatencySumMS,
 			row.LatencySamples,

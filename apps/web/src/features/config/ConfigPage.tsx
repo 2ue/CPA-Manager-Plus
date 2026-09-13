@@ -54,6 +54,7 @@ import {
 import { detectApiBaseFromLocation } from '@/utils/connection';
 import { ManagerConfigPanel } from './components/ManagerConfigPanel';
 import { CacheTokenAdjustmentPanel } from './components/CacheTokenAdjustmentPanel';
+import { ClaudeCacheTtlPanel } from './components/ClaudeCacheTtlPanel';
 import styles from './ConfigPage.module.scss';
 
 type ConfigEditorTab = 'visual' | 'cache' | 'source' | 'manager';
@@ -1788,18 +1789,35 @@ export function ConfigPage() {
               />
             </>
           ) : activeTab === 'cache' ? (
-            <CacheTokenAdjustmentPanel
-              value={visualValues.cacheTokenAdjustment}
-              disabled={
-                disableControls ||
-                loading ||
-                saving ||
-                managerSaving ||
-                diffModalOpen ||
-                apiKeyMutationInFlight
-              }
-              onChange={(cacheTokenAdjustment) => setVisualValues({ cacheTokenAdjustment })}
-            />
+            <>
+              {/* Request-rewriting first, then the reporting-only rules. The two
+                  are visually separated so a TTL change is never mistaken for a
+                  billing-figure adjustment. */}
+              <ClaudeCacheTtlPanel
+                value={visualValues.claudeCode}
+                disabled={
+                  disableControls ||
+                  loading ||
+                  saving ||
+                  managerSaving ||
+                  diffModalOpen ||
+                  apiKeyMutationInFlight
+                }
+                onChange={(claudeCode) => setVisualValues({ claudeCode })}
+              />
+              <CacheTokenAdjustmentPanel
+                value={visualValues.cacheTokenAdjustment}
+                disabled={
+                  disableControls ||
+                  loading ||
+                  saving ||
+                  managerSaving ||
+                  diffModalOpen ||
+                  apiKeyMutationInFlight
+                }
+                onChange={(cacheTokenAdjustment) => setVisualValues({ cacheTokenAdjustment })}
+              />
+            </>
           ) : (
             <div className={styles.sourceWorkspace}>
               <div className={styles.sourceToolbar}>

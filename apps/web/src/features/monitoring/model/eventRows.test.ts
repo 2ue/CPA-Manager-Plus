@@ -424,3 +424,47 @@ describe('buildEventRows', () => {
     expect(display.meta).toBe('Provider: openai');
   });
 });
+
+describe('cache creation TTL tiers', () => {
+  it('leaves both tiers at zero when the upstream reported no split', () => {
+    // Rows older than the tier columns land here too. The panel renders the
+    // write bare rather than guessing it into a pool.
+    const [row] = buildRows({
+      tokens: { input_tokens: 10, output_tokens: 20, cache_creation_tokens: 1_000 },
+    });
+    expect(row.cacheCreationTokens).toBe(1_000);
+    expect(row.cacheCreation5mTokens).toBe(0);
+    expect(row.cacheCreation1hTokens).toBe(0);
+  });
+
+  it('carries a reported split through to the row', () => {
+    const [row] = buildRows({
+      tokens: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_creation_tokens: 1_000,
+        cache_creation_5m_tokens: 600,
+        cache_creation_1h_tokens: 400,
+      },
+    });
+    expect(row.cacheCreation5mTokens).toBe(600);
+    expect(row.cacheCreation1hTokens).toBe(400);
+  });
+
+  it('rescales a split that disagrees with the cache write total', () => {
+    const [row] = buildRows({
+      tokens: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_creation_tokens: 1_000,
+        cache_creation_5m_tokens: 300,
+        cache_creation_1h_tokens: 200,
+      },
+    });
+    // The tiers must always sum to the write total shown next to them.
+    expect((row.cacheCreation5mTokens ?? 0) + (row.cacheCreation1hTokens ?? 0)).toBe(
+      row.cacheCreationTokens
+    );
+    expect(row.cacheCreation1hTokens).toBe(400);
+  });
+});

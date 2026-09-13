@@ -69,6 +69,14 @@ export interface UsageTokens {
   cache_creation_tokens?: number;
   cache_creation_input_tokens?: number;
   cacheCreationInputTokens?: number;
+  // Anthropic's ephemeral cache TTL split. A 1h write bills at 2x base input
+  // and a 5m write at 1.25x, so the two tiers cannot share a rate. Both stay
+  // absent when the upstream reported no nested cache_creation object, and
+  // cache_creation_tokens remains the authoritative total either way.
+  cache_creation_5m_tokens?: number;
+  cacheCreation5mTokens?: number;
+  cache_creation_1h_tokens?: number;
+  cacheCreation1hTokens?: number;
   cache_write_tokens?: number;
   cacheWriteTokens?: number;
   cache_write_input_tokens?: number;
@@ -301,6 +309,18 @@ const CACHE_CREATION_TOKEN_KEYS = [
   'cache_write_input_tokens',
   'cacheWriteInputTokens',
 ] as const;
+const CACHE_CREATION_5M_TOKEN_KEYS = [
+  'cache_creation_5m_tokens',
+  'cacheCreation5mTokens',
+  'ephemeral_5m_input_tokens',
+  'ephemeral5mInputTokens',
+] as const;
+const CACHE_CREATION_1H_TOKEN_KEYS = [
+  'cache_creation_1h_tokens',
+  'cacheCreation1hTokens',
+  'ephemeral_1h_input_tokens',
+  'ephemeral1hInputTokens',
+] as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -370,6 +390,49 @@ const supportsLongContextPremium = (modelName: string): boolean => {
 const isConfiguredPriceValue = (value: unknown, configured?: boolean): boolean => {
   const parsed = Number(value);
   return configured === true || (Number.isFinite(parsed) && parsed > 0);
+};
+
+// Anthropic prices a 1h cache write at 2x base input and a 5m write at 1.25x.
+// Price feeds publish the 5m rate as the single cache-creation cost, so 1.6
+// (2 / 1.25) recovers the 1h rate from it without a second configured field.
+const CACHE_CREATION_1H_OVER_5M_RATIO = 2 / 1.25;
+const CACHE_CREATION_1H_OVER_PROMPT_RATIO = 2;
+// LiteLLM publishes the extended-TTL rate under these keys. They are per-token,
+// like every other cost in the raw entry, while ModelPrice is per 1M tokens.
+const CACHE_CREATION_1H_RAW_PRICE_KEYS = [
+  'cache_creation_input_token_cost_above_1hr',
+  'cache_creation_input_token_cost_above_1h',
+] as const;
+const cacheCreation1hRawPriceCache = new Map<string, number>();
+
+// Reads the configured 1h cache-write rate out of the raw price entry, which is
+// the only place the feeds carry it. Memoized per raw entry because the caller
+// runs once per usage row and JSON.parse would otherwise dominate the loop.
+const readConfiguredCacheCreation1hPrice = (rawJson: string | undefined): number => {
+  const raw = typeof rawJson === 'string' ? rawJson.trim() : '';
+  if (!raw) return 0;
+  const cached = cacheCreation1hRawPriceCache.get(raw);
+  if (cached !== undefined) return cached;
+  let resolved = 0;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (isRecord(parsed)) {
+      for (const key of CACHE_CREATION_1H_RAW_PRICE_KEYS) {
+        const value = Number(parsed[key]);
+        if (Number.isFinite(value) && value > 0) {
+          resolved = value * TOKENS_PER_PRICE_UNIT;
+          break;
+        }
+      }
+    }
+  } catch {
+    resolved = 0;
+  }
+  // Bounded by the model count in practice; the reset keeps a pathological
+  // stream of one-off raw entries from growing the map without limit.
+  if (cacheCreation1hRawPriceCache.size >= 512) cacheCreation1hRawPriceCache.clear();
+  cacheCreation1hRawPriceCache.set(raw, resolved);
+  return resolved;
 };
 
 const getOfficialGpt56Price = (modelName: string): ModelPrice | undefined => {
@@ -598,6 +661,42 @@ export const normalizeCacheAccounting = (input: {
   };
 };
 
+/**
+ * Reconciles Anthropic's ephemeral cache TTL tiers against the cache-write
+ * total, mirroring NormalizeCacheCreationTiers on the server.
+ *
+ * A zero pair means "tiers unknown": either the upstream never reported the
+ * nested cache_creation object, or the row predates the columns. Callers must
+ * treat that as an all-5m write rather than inventing a split. When the pair is
+ * present it is rescaled to sum to the aggregate exactly, so no token is
+ * dropped or double billed; the 1h tier absorbs the rounding remainder because
+ * it is the more expensive pool.
+ */
+export const normalizeCacheCreationTiers = (
+  tokens5mRaw: unknown,
+  tokens1hRaw: unknown,
+  aggregateRaw: unknown
+): { tokens5m: number; tokens1h: number } => {
+  const tokens5m = Math.max(toFiniteNumber(tokens5mRaw), 0);
+  const tokens1h = Math.max(toFiniteNumber(tokens1hRaw), 0);
+  const aggregate = Math.max(toFiniteNumber(aggregateRaw), 0);
+  const tierSum = tokens5m + tokens1h;
+  if (tierSum <= 0 || aggregate <= 0) return { tokens5m: 0, tokens1h: 0 };
+  if (tierSum === aggregate) return { tokens5m, tokens1h };
+  const scaled5m = Math.min(Math.max(Math.round((tokens5m / tierSum) * aggregate), 0), aggregate);
+  return { tokens5m: scaled5m, tokens1h: aggregate - scaled5m };
+};
+
+export const readCacheCreationTiers = (
+  tokens: Record<string, unknown> | undefined,
+  aggregate: number
+): { tokens5m: number; tokens1h: number } =>
+  normalizeCacheCreationTiers(
+    tokens ? readFirstTokenNumber(tokens, CACHE_CREATION_5M_TOKEN_KEYS) : 0,
+    tokens ? readFirstTokenNumber(tokens, CACHE_CREATION_1H_TOKEN_KEYS) : 0,
+    aggregate
+  );
+
 export type CacheHitMetricsInput = {
   modelName?: string;
   inputTokens: unknown;
@@ -791,6 +890,7 @@ const readTokens = (detail: Record<string, unknown>, modelName: string): UsageTo
   const tokensRaw = isRecord(detail.tokens) ? detail.tokens : {};
   const cacheReadTokens = readFirstTokenNumber(tokensRaw, CACHE_READ_TOKEN_KEYS);
   const cacheCreationTokens = readFirstTokenNumber(tokensRaw, CACHE_CREATION_TOKEN_KEYS);
+  const cacheCreationTiers = readCacheCreationTiers(tokensRaw, cacheCreationTokens);
   const accounting = normalizeCacheAccounting({
     context: {
       explicitMode:
@@ -828,6 +928,8 @@ const readTokens = (detail: Record<string, unknown>, modelName: string): UsageTo
     cache_tokens: accounting.legacyRead,
     cache_read_tokens: cacheReadTokens,
     cache_creation_tokens: cacheCreationTokens,
+    cache_creation_5m_tokens: cacheCreationTiers.tokens5m,
+    cache_creation_1h_tokens: cacheCreationTiers.tokens1h,
     total_tokens: totalTokens,
   };
 };
@@ -1235,6 +1337,17 @@ export function calculateCost(
   );
   const cacheReadTokens = Math.max(toFiniteNumber(detail.tokens.cache_read_tokens), 0);
   const cacheCreationTokens = Math.max(toFiniteNumber(detail.tokens.cache_creation_tokens), 0);
+  const cacheCreation1hTokens = normalizeCacheCreationTiers(
+    detail.tokens.cache_creation_5m_tokens ?? detail.tokens.cacheCreation5mTokens,
+    detail.tokens.cache_creation_1h_tokens ?? detail.tokens.cacheCreation1hTokens,
+    cacheCreationTokens
+  ).tokens1h;
+  // Deriving the 5m tier by subtraction keeps the two billed amounts summing to
+  // the write total in both branches: the reported split when the tiers are
+  // known, and the whole write at the 5m rate when they are not (an upstream
+  // that reported no nested cache_creation object, or a row older than the
+  // columns, must not be guessed into the pricier 1h pool).
+  const cacheCreation5mTokens = Math.max(cacheCreationTokens - cacheCreation1hTokens, 0);
   const hasContextPricing = Boolean(basePrice.contextTiers?.length);
   const contextTier = selectContextTierPrice(basePrice, inputTokens);
   const longContext =
@@ -1268,6 +1381,16 @@ export function calculateCost(
   )
     ? configuredCacheCreationPrice
     : promptPrice * (isGpt56Model(behaviorModel) ? 1.25 : 1);
+  const configuredCacheCreation1hPrice = readConfiguredCacheCreation1hPrice(price.rawJson);
+  // Without a published extended-TTL rate, scale from whichever base is real:
+  // a configured 5m rate carries the vendor's own cache premium, while an
+  // unconfigured one is just the prompt rate and would understate 1h at 1.6x.
+  const cacheCreation1hPrice =
+    configuredCacheCreation1hPrice > 0
+      ? configuredCacheCreation1hPrice
+      : isConfiguredPriceValue(configuredCacheCreationPrice, price.cacheCreationConfigured)
+        ? cacheCreationPrice * CACHE_CREATION_1H_OVER_5M_RATIO
+        : promptPrice * CACHE_CREATION_1H_OVER_PROMPT_RATIO;
   const readTokens = cachedTokens + cacheReadTokens;
   const promptTokens = Math.max(inputTokens - readTokens - cacheCreationTokens, 0);
   const inputMultiplier = longContext ? 2 : 1;
@@ -1276,7 +1399,8 @@ export function calculateCost(
     ((promptTokens / TOKENS_PER_PRICE_UNIT) * promptPrice +
       (cachedTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.cache) || 0) +
       (cacheReadTokens / TOKENS_PER_PRICE_UNIT) * cacheReadPrice +
-      (cacheCreationTokens / TOKENS_PER_PRICE_UNIT) * cacheCreationPrice) *
+      (cacheCreation5mTokens / TOKENS_PER_PRICE_UNIT) * cacheCreationPrice +
+      (cacheCreation1hTokens / TOKENS_PER_PRICE_UNIT) * cacheCreation1hPrice) *
       inputMultiplier +
     (completionTokens / TOKENS_PER_PRICE_UNIT) * completionPrice * outputMultiplier;
 

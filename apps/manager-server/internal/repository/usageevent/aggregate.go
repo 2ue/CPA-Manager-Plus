@@ -59,37 +59,39 @@ var pricingBandedUsageEventsCTE = pricingBandedUsageEventsCTEWithBaseFilter("")
 // Aggregate captures roll-up metrics for a usage_events window.
 type Aggregate struct {
 	usage.LongContextTokens
-	TotalCalls          int64
-	SuccessCalls        int64
-	FailureCalls        int64
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
-	AvgLatencyMS        sql.NullFloat64
-	LatencySamples      int64
-	ZeroTokenCalls      int64
+	TotalCalls            int64
+	SuccessCalls          int64
+	FailureCalls          int64
+	InputTokens           int64
+	OutputTokens          int64
+	ReasoningTokens       int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	TotalTokens           int64
+	AvgLatencyMS          sql.NullFloat64
+	LatencySamples        int64
+	ZeroTokenCalls        int64
 }
 
 // ModelStat aggregates per-model totals.
 type ModelStat struct {
 	usage.LongContextTokens
 	usage.PricingBand
-	Model               string
-	BillingModel        string
-	ServiceTier         string
-	Calls               int64
-	SuccessCalls        int64
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
+	Model                 string
+	BillingModel          string
+	ServiceTier           string
+	Calls                 int64
+	SuccessCalls          int64
+	InputTokens           int64
+	OutputTokens          int64
+	ReasoningTokens       int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	TotalTokens           int64
 }
 
 // RecentFailure holds the columns required to display a recent failure entry.
@@ -128,11 +130,13 @@ var aggregateSQL = fmt.Sprintf(`select
 	coalesce(sum(max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0)), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(cache_creation_1h_tokens), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then coalesce(normalized_total_input_tokens, input_tokens) else 0 end), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then output_tokens else 0 end), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0) else 0 end), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then cache_read_tokens else 0 end), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then cache_creation_tokens else 0 end), 0),
+	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then cache_creation_1h_tokens else 0 end), 0),
 	coalesce(sum(total_tokens), 0),
 	avg(nullif(latency_ms, 0)),
 	count(nullif(latency_ms, 0)),
@@ -155,11 +159,13 @@ func (r *repository) AggregateBetween(ctx context.Context, fromMs, toMs int64) (
 		&agg.CachedTokens,
 		&agg.CacheReadTokens,
 		&agg.CacheCreationTokens,
+		&agg.CacheCreation1hTokens,
 		&agg.LongInputTokens,
 		&agg.LongOutputTokens,
 		&agg.LongCachedTokens,
 		&agg.LongCacheReadTokens,
 		&agg.LongCacheCreationTokens,
+		&agg.LongCacheCreation1hTokens,
 		&agg.TotalTokens,
 		&agg.AvgLatencyMS,
 		&agg.LatencySamples,
@@ -195,11 +201,13 @@ select
 	coalesce(sum(max(max(e.cached_tokens, e.cache_tokens) - max(e.cache_read_tokens, 0) - max(e.cache_creation_tokens, 0), 0)), 0),
 	coalesce(sum(e.cache_read_tokens), 0),
 	coalesce(sum(e.cache_creation_tokens), 0),
+	coalesce(sum(e.cache_creation_1h_tokens), 0),
 	coalesce(sum(case when coalesce(e.normalized_total_input_tokens, e.input_tokens) > %[1]d then coalesce(e.normalized_total_input_tokens, e.input_tokens) else 0 end), 0),
 	coalesce(sum(case when coalesce(e.normalized_total_input_tokens, e.input_tokens) > %[1]d then e.output_tokens else 0 end), 0),
 	coalesce(sum(case when coalesce(e.normalized_total_input_tokens, e.input_tokens) > %[1]d then max(max(e.cached_tokens, e.cache_tokens) - max(e.cache_read_tokens, 0) - max(e.cache_creation_tokens, 0), 0) else 0 end), 0),
 	coalesce(sum(case when coalesce(e.normalized_total_input_tokens, e.input_tokens) > %[1]d then e.cache_read_tokens else 0 end), 0),
 	coalesce(sum(case when coalesce(e.normalized_total_input_tokens, e.input_tokens) > %[1]d then e.cache_creation_tokens else 0 end), 0),
+	coalesce(sum(case when coalesce(e.normalized_total_input_tokens, e.input_tokens) > %[1]d then e.cache_creation_1h_tokens else 0 end), 0),
 	coalesce(sum(e.total_tokens), 0)
 from banded_usage_events e
 join top_models t on t.model = e.analytics_model_value
@@ -234,11 +242,13 @@ func (r *repository) TopModelsBetween(ctx context.Context, fromMs, toMs int64, l
 			&stat.CachedTokens,
 			&stat.CacheReadTokens,
 			&stat.CacheCreationTokens,
+			&stat.CacheCreation1hTokens,
 			&stat.LongInputTokens,
 			&stat.LongOutputTokens,
 			&stat.LongCachedTokens,
 			&stat.LongCacheReadTokens,
 			&stat.LongCacheCreationTokens,
+			&stat.LongCacheCreation1hTokens,
 			&stat.TotalTokens,
 		); err != nil {
 			return nil, err
@@ -263,11 +273,13 @@ select
 	coalesce(sum(max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0)), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(cache_creation_1h_tokens), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then coalesce(normalized_total_input_tokens, input_tokens) else 0 end), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then output_tokens else 0 end), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0) else 0 end), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then cache_read_tokens else 0 end), 0),
 	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then cache_creation_tokens else 0 end), 0),
+	coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens) > %[1]d then cache_creation_1h_tokens else 0 end), 0),
 	coalesce(sum(total_tokens), 0)
 from banded_usage_events
 where timestamp_ms >= ? and timestamp_ms < ?
@@ -299,11 +311,13 @@ func (r *repository) ModelStatsBetween(ctx context.Context, fromMs, toMs int64) 
 			&stat.CachedTokens,
 			&stat.CacheReadTokens,
 			&stat.CacheCreationTokens,
+			&stat.CacheCreation1hTokens,
 			&stat.LongInputTokens,
 			&stat.LongOutputTokens,
 			&stat.LongCachedTokens,
 			&stat.LongCacheReadTokens,
 			&stat.LongCacheCreationTokens,
+			&stat.LongCacheCreation1hTokens,
 			&stat.TotalTokens,
 		); err != nil {
 			return nil, err

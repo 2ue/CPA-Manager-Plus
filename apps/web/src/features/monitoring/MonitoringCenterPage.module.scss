@@ -1101,6 +1101,14 @@
   background: var(--monitor-surface);
 }
 
+// The realtime table is wider than the panel and scrolls inside its own
+// `.tableWrapper`. The panel keeps `overflow: hidden` for its rounded corners —
+// releasing it here only let the table spill out visibly instead of scrolling,
+// so the clip stays and the wrapper owns the scrolling.
+.realtimePanel {
+  min-width: 0;
+}
+
 .controlBar,
 .toolbarControls {
   align-items: center;
@@ -1319,12 +1327,15 @@
 
 @include summaryTable.styles;
 @include accountOverview.styles;
+// Applied after the mixin, so these win. They must stay in the same pixel unit
+// as the base definitions — leaving them as percentages re-compressed these
+// five columns against the container and undid the scrolling layout.
 .realtimeTable {
-  --realtime-col-source: 16%;
-  --realtime-col-model: 16%;
-  --realtime-col-tps: 8%;
-  --realtime-col-latency: 8%;
-  --realtime-col-time: 8%;
+  --realtime-col-source: 240px;
+  --realtime-col-model: 190px;
+  --realtime-col-tps: 76px;
+  --realtime-col-latency: 132px;
+  --realtime-col-time: 116px;
 }
 
 .realtimeTable .logTypeCell .primaryCell > span {
@@ -1354,12 +1365,27 @@
   gap: 4px;
   min-width: 0;
   font-variant-numeric: tabular-nums;
-  cursor: help;
+}
+
+.realtimeUsageInfoButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+
+  &:hover,
+  &[aria-expanded='true'] {
+    color: var(--monitor-accent);
+  }
 
   &:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--monitor-accent) 55%, transparent);
     outline-offset: 2px;
-    border-radius: 3px;
   }
 }
 
@@ -1430,6 +1456,28 @@
   color: var(--monitor-info, #377dba);
 }
 
+// Marks which ephemeral pool a cache write landed in, since the 1h pool costs
+// 2x base input against the 5m pool's 1.25x. Absent when the split is unknown.
+.realtimeUsageCacheTtlBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 3px;
+  border: 1px solid color-mix(in srgb, var(--monitor-warning, #b7791f) 45%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--monitor-warning, #b7791f) 12%, transparent);
+  color: var(--monitor-warning, #b7791f);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+}
+
+.realtimeUsageCacheTtlBadge5m {
+  border-color: color-mix(in srgb, var(--monitor-info, #377dba) 45%, transparent);
+  background: color-mix(in srgb, var(--monitor-info, #377dba) 12%, transparent);
+  color: var(--monitor-info, #377dba);
+}
+
 .realtimeUsageTooltip {
   --monitor-surface: var(--bg-primary);
   --monitor-surface-elevated: var(--app-surface-strong);
@@ -1444,6 +1492,8 @@
   gap: 6px;
   min-width: 0;
   max-width: calc(100vw - 24px);
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--monitor-line) 86%, transparent);
   border-radius: 8px;
@@ -1475,8 +1525,9 @@
 
 .realtimeUsageTooltipLine {
   display: grid;
-  grid-template-columns: 1fr max-content;
+  grid-template-columns: max-content 1fr;
   gap: 16px;
+  align-items: baseline;
 }
 
 .realtimeUsageTooltipLabel {

@@ -2488,9 +2488,13 @@
     "realtime_usage_cached_label": "Cached",
     "realtime_usage_cache_read_label": "Cache Read",
     "realtime_usage_cache_creation_label": "Cache Creation",
+    "realtime_usage_cache_creation_5m_label": "Cache Creation (5m)",
+    "realtime_usage_cache_creation_1h_label": "Cache Creation (1h)",
+    "realtime_usage_cache_ttl_label": "Cache write TTL: {{ttl}}",
     "realtime_usage_raw_input_label": "Raw Input",
     "realtime_usage_cache_source_label": "Cache Usage Source",
     "realtime_usage_cache_source_none": "Not reported",
+    "realtime_usage_details_label": "View usage details",
     "reasoning_effort": "Reasoning Effort",
     "reasoning_effort_short": "Effort",
     "reasoning_service_short": "Reasoning / Tier",
@@ -3311,6 +3315,18 @@
       "cache": "Cache Control",
       "source": "Source File Editor",
       "manager": "CPA Manager Plus Configuration"
+    },
+    "claude_cache_ttl": {
+      "title": "Claude Cache TTL",
+      "description": "Forces the ephemeral cache lifetime on outgoing Claude requests. Lives under claude-code in the gateway config.",
+      "badge": "Rewrites upstream requests",
+      "warning": "Unlike the cache token rules below, this setting rewrites the request body sent upstream. It changes which cache pool is actually written and read, so it moves the real cache hit rate and the billing rate together (a 1 hour write bills at 2x base input, a 5 minute write at 1.25x).",
+      "label": "Cache lifetime",
+      "passthrough": "Passthrough (use upstream default)",
+      "five_minutes": "5 minutes",
+      "one_hour": "1 hour",
+      "hint_passthrough": "Leaves the caller's cache settings untouched; the 1 hour pool still follows the credential exactly as native Claude Code selects it.",
+      "hint_forced": "Forced for both API key and OAuth accounts; the extended-cache-ttl beta header is added automatically when 1 hour is required. Subagent and probe requests always stay TTL-free."
     },
     "cache_adjustment": {
       "title": "Cache Token Control",

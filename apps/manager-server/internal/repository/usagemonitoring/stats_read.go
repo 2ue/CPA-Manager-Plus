@@ -299,11 +299,13 @@ func mergeStoredAccountStats(
 		sum(cached_tokens),
 		sum(cache_read_tokens),
 		sum(cache_creation_tokens),
+		sum(cache_creation_1h_tokens),
 		sum(long_input_tokens),
 		sum(long_output_tokens),
 		sum(long_cached_tokens),
 		sum(long_cache_read_tokens),
 		sum(long_cache_creation_tokens),
+		sum(long_cache_creation_1h_tokens),
 		sum(total_tokens),
 		max(last_seen_ms),
 		sum(latency_sum_ms),
@@ -340,7 +342,7 @@ func mergeProjectedAccountStats(
 		p.auth_provider_snapshot, p.auth_account_id_snapshot, p.auth_index, p.source, p.source_hash,
 		p.requested_model as model, p.analytics_model, p.resolved_model, p.service_tier, p.failed,
 		p.normalized_total_input_tokens, p.output_tokens, p.cached_tokens,
-		p.cache_tokens, p.cache_read_tokens, p.cache_creation_tokens,
+		p.cache_tokens, p.cache_read_tokens, p.cache_creation_tokens, p.cache_creation_1h_tokens,
 		p.total_tokens, p.latency_ms`,
 		`e.timestamp_ms, coalesce(e.account_snapshot, ''), coalesce(e.auth_label_snapshot, ''),
 		coalesce(e.provider, ''), coalesce(e.auth_provider_snapshot, ''), coalesce(e.auth_account_id_snapshot, ''),
@@ -352,7 +354,7 @@ func mergeProjectedAccountStats(
 		coalesce(e.normalized_total_input_tokens, e.input_tokens, 0),
 		coalesce(e.output_tokens, 0), coalesce(e.cached_tokens, 0),
 		coalesce(e.cache_tokens, 0), coalesce(e.cache_read_tokens, 0),
-		coalesce(e.cache_creation_tokens, 0), coalesce(e.total_tokens, 0),
+		coalesce(e.cache_creation_tokens, 0), coalesce(e.cache_creation_1h_tokens, 0), coalesce(e.total_tokens, 0),
 		e.latency_ms`,
 		eventSourceOptions{
 			AfterID:            options.AfterID,
@@ -387,11 +389,13 @@ func mergeProjectedAccountStats(
 		coalesce(sum(compatible_cached_tokens_value), 0),
 		coalesce(sum(cache_read_tokens), 0),
 		coalesce(sum(cache_creation_tokens), 0),
+		coalesce(sum(cache_creation_1h_tokens), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then normalized_input_tokens_value else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then output_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then compatible_cached_tokens_value else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then cache_read_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then cache_creation_tokens else 0 end), 0),
+		coalesce(sum(case when normalized_input_tokens_value > ? then cache_creation_1h_tokens else 0 end), 0),
 		coalesce(sum(total_tokens), 0),
 		max(timestamp_ms),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
@@ -441,11 +445,13 @@ func mergeStoredAPIKeyStats(
 		sum(cached_tokens),
 		sum(cache_read_tokens),
 		sum(cache_creation_tokens),
+		sum(cache_creation_1h_tokens),
 		sum(long_input_tokens),
 		sum(long_output_tokens),
 		sum(long_cached_tokens),
 		sum(long_cache_read_tokens),
 		sum(long_cache_creation_tokens),
+		sum(long_cache_creation_1h_tokens),
 		sum(total_tokens),
 		max(last_seen_ms),
 		sum(latency_sum_ms),
@@ -483,7 +489,7 @@ func mergeProjectedAPIKeyStats(
 		p.provider, p.auth_provider_snapshot, p.auth_account_id_snapshot, p.auth_index, p.source,
 		p.source_hash, p.requested_model as model, p.analytics_model, p.resolved_model, p.service_tier, p.failed,
 		p.normalized_total_input_tokens, p.output_tokens, p.cached_tokens,
-		p.cache_tokens, p.cache_read_tokens, p.cache_creation_tokens,
+		p.cache_tokens, p.cache_read_tokens, p.cache_creation_tokens, p.cache_creation_1h_tokens,
 		p.total_tokens, p.latency_ms`,
 		`e.timestamp_ms, coalesce(e.api_key_hash, ''), coalesce(e.account_snapshot, ''),
 		coalesce(e.auth_label_snapshot, ''), coalesce(e.provider, ''),
@@ -494,7 +500,7 @@ func mergeProjectedAPIKeyStats(
 		coalesce(e.normalized_total_input_tokens, e.input_tokens, 0),
 		coalesce(e.output_tokens, 0), coalesce(e.cached_tokens, 0),
 		coalesce(e.cache_tokens, 0), coalesce(e.cache_read_tokens, 0),
-		coalesce(e.cache_creation_tokens, 0), coalesce(e.total_tokens, 0),
+		coalesce(e.cache_creation_tokens, 0), coalesce(e.cache_creation_1h_tokens, 0), coalesce(e.total_tokens, 0),
 		e.latency_ms`,
 		eventSourceOptions{
 			AfterID:            afterID,
@@ -525,11 +531,13 @@ func mergeProjectedAPIKeyStats(
 		coalesce(sum(compatible_cached_tokens_value), 0),
 		coalesce(sum(cache_read_tokens), 0),
 		coalesce(sum(cache_creation_tokens), 0),
+		coalesce(sum(cache_creation_1h_tokens), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then normalized_input_tokens_value else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then output_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then compatible_cached_tokens_value else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then cache_read_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > ? then cache_creation_tokens else 0 end), 0),
+		coalesce(sum(case when normalized_input_tokens_value > ? then cache_creation_1h_tokens else 0 end), 0),
 		coalesce(sum(total_tokens), 0),
 		max(timestamp_ms),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
@@ -550,7 +558,7 @@ func mergeProjectedAPIKeyStats(
 
 func appendLongContextThresholdArgs(args []any) []any {
 	const threshold = usage.LongContextInputTokenThreshold
-	return append(args, threshold, threshold, threshold, threshold, threshold)
+	return append(args, threshold, threshold, threshold, threshold, threshold, threshold)
 }
 
 func scanAccountStats(rows *sql.Rows, grouped map[accountStatKey]*accountStatAccumulator) error {
@@ -580,11 +588,13 @@ func scanAccountStats(rows *sql.Rows, grouped map[accountStatKey]*accountStatAcc
 			&row.CachedTokens,
 			&row.CacheReadTokens,
 			&row.CacheCreationTokens,
+			&row.CacheCreation1hTokens,
 			&row.LongInputTokens,
 			&row.LongOutputTokens,
 			&row.LongCachedTokens,
 			&row.LongCacheReadTokens,
 			&row.LongCacheCreationTokens,
+			&row.LongCacheCreation1hTokens,
 			&row.TotalTokens,
 			&row.LastSeenMS,
 			&latencySumMS,
@@ -624,11 +634,13 @@ func scanAPIKeyStats(rows *sql.Rows, grouped map[apiKeyStatKey]*apiKeyStatAccumu
 			&row.CachedTokens,
 			&row.CacheReadTokens,
 			&row.CacheCreationTokens,
+			&row.CacheCreation1hTokens,
 			&row.LongInputTokens,
 			&row.LongOutputTokens,
 			&row.LongCachedTokens,
 			&row.LongCacheReadTokens,
 			&row.LongCacheCreationTokens,
+			&row.LongCacheCreation1hTokens,
 			&row.TotalTokens,
 			&row.LastSeenMS,
 			&latencySumMS,
@@ -709,11 +721,13 @@ func mergeAccountValues(target *AccountModelStat, row AccountModelStat) {
 	target.CachedTokens += row.CachedTokens
 	target.CacheReadTokens += row.CacheReadTokens
 	target.CacheCreationTokens += row.CacheCreationTokens
+	target.CacheCreation1hTokens += row.CacheCreation1hTokens
 	target.LongInputTokens += row.LongInputTokens
 	target.LongOutputTokens += row.LongOutputTokens
 	target.LongCachedTokens += row.LongCachedTokens
 	target.LongCacheReadTokens += row.LongCacheReadTokens
 	target.LongCacheCreationTokens += row.LongCacheCreationTokens
+	target.LongCacheCreation1hTokens += row.LongCacheCreation1hTokens
 	target.TotalTokens += row.TotalTokens
 	target.LatencySumMS += row.LatencySumMS
 	target.LatencySamples += row.LatencySamples
@@ -737,11 +751,13 @@ func mergeAPIKeyValues(target *APIKeyModelStat, row APIKeyModelStat) {
 	target.CachedTokens += row.CachedTokens
 	target.CacheReadTokens += row.CacheReadTokens
 	target.CacheCreationTokens += row.CacheCreationTokens
+	target.CacheCreation1hTokens += row.CacheCreation1hTokens
 	target.LongInputTokens += row.LongInputTokens
 	target.LongOutputTokens += row.LongOutputTokens
 	target.LongCachedTokens += row.LongCachedTokens
 	target.LongCacheReadTokens += row.LongCacheReadTokens
 	target.LongCacheCreationTokens += row.LongCacheCreationTokens
+	target.LongCacheCreation1hTokens += row.LongCacheCreation1hTokens
 	target.TotalTokens += row.TotalTokens
 	target.LatencySamples += row.LatencySamples
 	if row.LastSeenMS > target.LastSeenMS {

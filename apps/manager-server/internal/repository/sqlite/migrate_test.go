@@ -3728,3 +3728,67 @@ func assertTableAbsent(t *testing.T, db *sql.DB, table string) {
 		t.Fatalf("table %s exists, want absent", table)
 	}
 }
+
+func TestEnsureUsageRollupCacheCreationTierColumnsPreservesExistingRows(t *testing.T) {
+	db, err := sql.Open("sqlite", dataSourceName(filepath.Join(t.TempDir(), "cache-tier-migration.sqlite")))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	for _, statement := range []string{
+		`create table usage_account_model_rollups (id integer primary key, cache_creation_tokens integer not null default 0)`,
+		`create table usage_dashboard_hourly_rollups (id integer primary key)`,
+		`create table usage_monitoring_event_projection_v1 (id integer primary key)`,
+		`insert into usage_account_model_rollups (id, cache_creation_tokens) values (1, 500)`,
+		`insert into usage_dashboard_hourly_rollups (id) values (1)`,
+		`insert into usage_monitoring_event_projection_v1 (id) values (1)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("setup migration fixture: %v", err)
+		}
+	}
+
+	if err := ensureUsageRollupCacheCreationTierColumns(db); err != nil {
+		t.Fatalf("migrate cache creation tier columns: %v", err)
+	}
+
+	for _, table := range []string{"usage_account_model_rollups", "usage_dashboard_hourly_rollups"} {
+		columns := migrationTableColumns(t, db, table)
+		for _, column := range []string{"cache_creation_1h_tokens", "long_cache_creation_1h_tokens"} {
+			if !columns[column] {
+				t.Fatalf("%s missing column %s: %#v", table, column, columns)
+			}
+		}
+	}
+	// The projection mirrors one event per row and has no long-context split.
+	projectionColumns := migrationTableColumns(t, db, "usage_monitoring_event_projection_v1")
+	if !projectionColumns["cache_creation_1h_tokens"] {
+		t.Fatalf("projection missing cache_creation_1h_tokens: %#v", projectionColumns)
+	}
+	if projectionColumns["long_cache_creation_1h_tokens"] {
+		t.Fatalf("projection gained a long-context column: %#v", projectionColumns)
+	}
+
+	// Unlike the long-context migration this must not park tables or discard
+	// history: every pre-existing row already means "split not reported", which
+	// the zero default expresses exactly.
+	assertTableCount(t, db, "usage_account_model_rollups", 1)
+	assertTableCount(t, db, "usage_dashboard_hourly_rollups", 1)
+	assertTableCount(t, db, "usage_monitoring_event_projection_v1", 1)
+
+	var cacheCreation, cacheCreation1h int64
+	if err := db.QueryRow(
+		`select cache_creation_tokens, cache_creation_1h_tokens from usage_account_model_rollups where id = 1`,
+	).Scan(&cacheCreation, &cacheCreation1h); err != nil {
+		t.Fatalf("read migrated row: %v", err)
+	}
+	if cacheCreation != 500 || cacheCreation1h != 0 {
+		t.Fatalf("migrated row = (%d, %d), want (500, 0)", cacheCreation, cacheCreation1h)
+	}
+
+	// Re-running must be a no-op rather than an "duplicate column" error.
+	if err := ensureUsageRollupCacheCreationTierColumns(db); err != nil {
+		t.Fatalf("rerun migration: %v", err)
+	}
+}

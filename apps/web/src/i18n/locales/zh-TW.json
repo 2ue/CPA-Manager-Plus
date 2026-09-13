@@ -2486,9 +2486,13 @@
     "realtime_usage_cached_label": "快取",
     "realtime_usage_cache_read_label": "快取讀取",
     "realtime_usage_cache_creation_label": "快取建立",
+    "realtime_usage_cache_creation_5m_label": "快取建立（5 分鐘）",
+    "realtime_usage_cache_creation_1h_label": "快取建立（1 小時）",
+    "realtime_usage_cache_ttl_label": "快取寫入有效期：{{ttl}}",
     "realtime_usage_raw_input_label": "原始輸入",
     "realtime_usage_cache_source_label": "快取來源",
     "realtime_usage_cache_source_none": "未回報",
+    "realtime_usage_details_label": "檢視用量明細",
     "reasoning_effort": "思考強度",
     "reasoning_effort_short": "強度",
     "reasoning_service_short": "推理/服務",
@@ -3310,6 +3314,18 @@
       "source": "原始檔編輯",
       "manager": "CPA Manager Plus 設定"
     },
+    "claude_cache_ttl": {
+      "title": "Claude 快取生命週期（TTL）",
+      "description": "強制指定發往上游 Claude 請求的快取生命週期。對應閘道設定中的 claude-code 節點。",
+      "badge": "會改寫上游請求",
+      "warning": "與下方的快取 Token 規則不同，此項會改寫發送給上游的請求內容。它決定實際寫入與讀取的是哪個快取池，因此會同時改變真實快取命中率與計費費率（1 小時寫入依基礎輸入的 2 倍計費，5 分鐘寫入依 1.25 倍計費）。",
+      "label": "快取時間",
+      "passthrough": "透傳（使用上游預設）",
+      "five_minutes": "5 分鐘",
+      "one_hour": "1 小時",
+      "hint_passthrough": "不修改呼叫方傳入的快取設定；1 小時快取池仍依原生 Claude Code 的規則跟隨憑證類型決定。",
+      "hint_forced": "對 API Key 與 OAuth 帳號一律強制生效；需要 1 小時快取時會自動補上 extended-cache-ttl beta 標頭。子代理與探針請求始終不帶 TTL。"
+    },
     "cache_adjustment": {
       "title": "快取 Token 控制",
       "description": "在既有計算完成後調整最終輸入、快取讀取、快取寫入與輸出 Token。調整結果會寫入返回的 usage，並用於請求監控、用量彙總與計費；不會修改發送給上游的請求內容。",
@@ -3344,8 +3360,14 @@
         "description": "在現有統計計算完成後，可選擇放大最終輸出用量。",
         "enabled": "啟用輸出放大"
       },
-      "read": { "title": "讀取快取", "description": "獨立調整 cache_read_tokens，並用於返回 usage、監控、彙總與計費。" },
-      "write": { "title": "寫入快取", "description": "獨立調整 cache_creation_tokens，並用於返回 usage、監控、彙總與計費。" }
+      "read": {
+        "title": "讀取快取",
+        "description": "獨立調整 cache_read_tokens，並用於返回 usage、監控、彙總與計費。"
+      },
+      "write": {
+        "title": "寫入快取",
+        "description": "獨立調整 cache_creation_tokens，並用於返回 usage、監控、彙總與計費。"
+      }
     },
     "manager": {
       "title": "CPA Manager Plus 設定",

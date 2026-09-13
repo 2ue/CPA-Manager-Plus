@@ -192,6 +192,10 @@ export type MonitoringEventRow = {
   cachedTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
+  // Anthropic's ephemeral cache TTL split of cacheCreationTokens. Both are 0
+  // when the split is unknown, which the UI renders as an unlabelled write.
+  cacheCreation5mTokens?: number;
+  cacheCreation1hTokens?: number;
   cacheUsageSource?: string;
   totalTokens: number;
   totalCost: number;

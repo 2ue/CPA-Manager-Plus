@@ -541,6 +541,29 @@
     min-width: 0;
     max-width: 100%;
     overflow-x: auto;
+    // macOS hides overlay scrollbars until a scroll is already in progress, so
+    // a table that overflows looks merely cut off. Forcing the track to stay
+    // visible is the affordance that tells you the row continues sideways.
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--monitor-line) 90%, transparent) transparent;
+
+    &::-webkit-scrollbar {
+      height: 10px;
+    }
+
+    &::-webkit-scrollbar-track {
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--monitor-line) 28%, transparent);
+    }
+
+    &::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--monitor-muted) 45%, transparent);
+
+      &:hover {
+        background: color-mix(in srgb, var(--monitor-muted) 70%, transparent);
+      }
+    }
   }
 
   .table {
@@ -708,21 +731,30 @@
     color: var(--monitor-muted);
   }
 
+  // Widths are absolute, not percentages. Percentages under `table-layout:
+  // fixed` always resolve against the container, so the table re-compressed to
+  // the viewport at any width and `min-width` never engaged — 12 columns then
+  // shared whatever space existed and every one of them was cramped. Pixels let
+  // the columns keep the width their content actually needs and push the total
+  // past the viewport, which is what gives `.tableWrapper` something to scroll.
   .realtimeTable {
-    --realtime-col-source: 21%;
-    --realtime-col-model: 12%;
-    --realtime-col-effort: 7%;
-    --realtime-col-recent: 6%;
-    --realtime-col-status: 7%;
-    --realtime-col-success-rate: 7%;
-    --realtime-col-total-calls: 5%;
-    --realtime-col-tps: 5%;
-    --realtime-col-latency: 10%;
-    --realtime-col-time: 8%;
-    --realtime-col-usage: 7%;
-    --realtime-col-cost: 5%;
+    --realtime-col-source: 240px;
+    --realtime-col-model: 168px;
+    --realtime-col-effort: 132px;
+    --realtime-col-recent: 96px;
+    --realtime-col-status: 104px;
+    --realtime-col-success-rate: 92px;
+    --realtime-col-total-calls: 76px;
+    --realtime-col-tps: 76px;
+    --realtime-col-latency: 132px;
+    --realtime-col-time: 116px;
+    // Usage stacks total / in-out / cache-read-write plus the 1H·5M badge, and
+    // cost carries a currency-prefixed 3dp figure; both were the tightest cells.
+    --realtime-col-usage: 184px;
+    --realtime-col-cost: 104px;
 
-    min-width: 1260px;
+    width: max-content;
+    min-width: 100%;
     border-collapse: separate;
     border-spacing: 0 8px;
     background: transparent;

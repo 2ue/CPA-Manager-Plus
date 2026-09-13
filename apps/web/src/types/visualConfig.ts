@@ -102,6 +102,38 @@ export interface InputTokenAdjustmentConfig {
 
 export interface OutputTokenAdjustmentConfig extends CacheTokenAdjustmentRule {}
 
+/**
+ * Ephemeral cache lifetime forced on upstream requests.
+ *
+ * `passthrough` leaves whatever the caller sent untouched, so the upstream
+ * decides. `5m` and `1h` rewrite every `cache_control` block to that TTL and
+ * add the `extended-cache-ttl` beta header when 1h is required.
+ *
+ * This lives under `claude-code`, not `cache-token-adjustment`: it rewrites the
+ * body sent upstream and therefore moves the real cache hit rate, not just the
+ * reported figures. Keeping it out of the reporting-only section is deliberate.
+ */
+export type CacheTtlMode = 'passthrough' | '5m' | '1h';
+
+export const CACHE_TTL_MODES: CacheTtlMode[] = ['passthrough', '5m', '1h'];
+
+/**
+ * Applied when `cache-ttl` is enabled but carries no recognised `value`,
+ * matching the gateway's CacheTTLConfig.Resolved(). An enabled section still
+ * has to mean something definite, and 1h is what native Claude Code selects
+ * for its main interaction queries.
+ */
+export const DEFAULT_CACHE_TTL_MODE: CacheTtlMode = '1h';
+
+/** Claude Code request-shaping settings (`claude-code` in the gateway config). */
+export interface ClaudeCodeConfig {
+  cacheTtl: CacheTtlMode;
+}
+
+/**
+ * Reporting-only post-processing of cache token counts. Nothing in here changes
+ * the request sent upstream — see {@link ClaudeCodeConfig} for the forced TTL.
+ */
 export interface CacheTokenAdjustmentConfig {
   input: InputTokenAdjustmentConfig;
   read: CacheTokenAdjustmentRule;
@@ -192,6 +224,7 @@ export type VisualConfigValues = {
   payloadFilterRules: PayloadFilterRule[];
   streaming: StreamingConfig;
   cacheTokenAdjustment: CacheTokenAdjustmentConfig;
+  claudeCode: ClaudeCodeConfig;
 };
 
 export const makeClientId = () => {
@@ -271,6 +304,11 @@ export const DEFAULT_VISUAL_VALUES: VisualConfigValues = {
     keepaliveSeconds: '',
     bootstrapRetries: '',
     nonstreamKeepaliveInterval: '',
+  },
+  claudeCode: {
+    // A config with no claude-code.cache-ttl node at all has never opted into
+    // TTL forcing, so the safe default is to leave upstream requests alone.
+    cacheTtl: 'passthrough',
   },
   cacheTokenAdjustment: {
     input: {

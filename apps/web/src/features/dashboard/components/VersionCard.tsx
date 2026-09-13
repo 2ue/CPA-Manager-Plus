@@ -271,9 +271,20 @@ export function VersionCard({
     [apiVersion, latest.latestApi, latestApiReleaseUrl, t]
   );
 
-  const buildTimeDisplay = serverBuildDate
-    ? new Date(serverBuildDate).toLocaleString(i18n.language)
-    : t('dashboard.version_unknown');
+  // Builds without ldflags report a literal "unknown", and some gateways send a
+  // value Date cannot parse. Rendering "Invalid Date" leaks that through to the
+  // dashboard, so fall back to the unknown label whenever parsing fails.
+  const buildTimeDisplay = useMemo(() => {
+    const raw = serverBuildDate?.trim();
+    if (!raw) {
+      return t('dashboard.version_unknown');
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      return t('dashboard.version_unknown');
+    }
+    return parsed.toLocaleString(i18n.language);
+  }, [serverBuildDate, i18n.language, t]);
 
   const collector = collectorStatus?.collector;
   const collectorLastError = collector?.lastError?.trim() || '';

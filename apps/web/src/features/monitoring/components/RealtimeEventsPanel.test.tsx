@@ -369,7 +369,10 @@ describe('RealtimeEventsPanel', () => {
     expect(markup).toContain('>0</span>');
     expect(markup).toContain(styles.realtimeUsageTooltip);
     expect(markup).toContain('role="tooltip"');
-    expect(markup).toContain('aria-describedby=');
+    // The usage tooltip opens from the info button, not hover, so the cell
+    // points at it via aria-controls instead of describing it ambiently.
+    expect(markup).toContain('aria-controls=');
+    expect(markup).toContain('aria-expanded="false"');
     expect(markup).not.toContain('HTTP');
   });
 
@@ -566,10 +569,16 @@ describe('RealtimeEventsPanel', () => {
     expect(markup).toContain('>Cached</span><span class=');
     expect(markup).toContain('>Cache Read</span><span class=');
     expect(markup).toContain('>Cache Creation</span><span class=');
-    expect(markup).toContain('>151.0K</span>');
-    expect(markup).toContain('>1.0K</span>');
-    expect(markup).toContain('aria-label="Total: 33, Input: 152.6K, Output: 20, Reasoning: 3, Cached: 0, Cache Read: 151.0K, Cache Creation: 1.0K"');
-    expect(markup).toContain('tabindex="0"');
+    // The narrow cell shows compacted figures so the column is readable, while
+    // the tooltip and the accessible summary below keep the exact counts — the
+    // precision is relocated, never lost.
+    expect(markup).toContain('>151,000</span>');
+    expect(markup).toContain('>1,000</span>');
+    expect(markup).toContain('▣</span>151.0K');
+    expect(markup).toContain('▣</span>1.0K');
+    expect(markup).toContain(
+      'aria-label="Total: 33, Input: 152,600, Output: 20, Reasoning: 3, Cached: 0, Cache Read: 151,000, Cache Creation: 1,000"'
+    );
   });
 
   it('shows the loaded vs total summary with a load-more action when more pages exist', () => {

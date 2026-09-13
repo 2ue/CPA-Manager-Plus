@@ -68,22 +68,23 @@ type Filter struct {
 
 type Row struct {
 	usage.LongContextTokens
-	BucketMS            int64
-	Model               string
-	BillingModel        string
-	ServiceTier         string
-	Failed              bool
-	Calls               int64
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
-	LatencySumMS        int64
-	LatencySamples      int64
-	ZeroTokenCalls      int64
+	BucketMS              int64
+	Model                 string
+	BillingModel          string
+	ServiceTier           string
+	Failed                bool
+	Calls                 int64
+	InputTokens           int64
+	OutputTokens          int64
+	ReasoningTokens       int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	TotalTokens           int64
+	LatencySumMS          int64
+	LatencySamples        int64
+	ZeroTokenCalls        int64
 }
 
 type rowKey struct {
@@ -456,11 +457,13 @@ func upsertAggregateBatch(ctx context.Context, tx *sql.Tx, structureRevision str
 		cached_tokens,
 		cache_read_tokens,
 		cache_creation_tokens,
+		cache_creation_1h_tokens,
 		long_input_tokens,
 		long_output_tokens,
 		long_cached_tokens,
 		long_cache_read_tokens,
 		long_cache_creation_tokens,
+		long_cache_creation_1h_tokens,
 		total_tokens,
 		latency_sum_ms,
 		latency_samples,
@@ -480,11 +483,13 @@ func upsertAggregateBatch(ctx context.Context, tx *sql.Tx, structureRevision str
 		coalesce(sum(max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0)), 0),
 		coalesce(sum(cache_read_tokens), 0),
 		coalesce(sum(cache_creation_tokens), 0),
+		coalesce(sum(cache_creation_1h_tokens), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then coalesce(normalized_total_input_tokens, input_tokens, 0) else 0 end), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then output_tokens else 0 end), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0) else 0 end), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then cache_read_tokens else 0 end), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then cache_creation_tokens else 0 end), 0),
+		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then cache_creation_1h_tokens else 0 end), 0),
 		coalesce(sum(total_tokens), 0),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 		count(nullif(latency_ms, 0)),
@@ -506,11 +511,13 @@ func upsertAggregateBatch(ctx context.Context, tx *sql.Tx, structureRevision str
 		cached_tokens = usage_hourly_aggregate_v1.cached_tokens + excluded.cached_tokens,
 		cache_read_tokens = usage_hourly_aggregate_v1.cache_read_tokens + excluded.cache_read_tokens,
 		cache_creation_tokens = usage_hourly_aggregate_v1.cache_creation_tokens + excluded.cache_creation_tokens,
+		cache_creation_1h_tokens = usage_hourly_aggregate_v1.cache_creation_1h_tokens + excluded.cache_creation_1h_tokens,
 		long_input_tokens = usage_hourly_aggregate_v1.long_input_tokens + excluded.long_input_tokens,
 		long_output_tokens = usage_hourly_aggregate_v1.long_output_tokens + excluded.long_output_tokens,
 		long_cached_tokens = usage_hourly_aggregate_v1.long_cached_tokens + excluded.long_cached_tokens,
 		long_cache_read_tokens = usage_hourly_aggregate_v1.long_cache_read_tokens + excluded.long_cache_read_tokens,
 		long_cache_creation_tokens = usage_hourly_aggregate_v1.long_cache_creation_tokens + excluded.long_cache_creation_tokens,
+		long_cache_creation_1h_tokens = usage_hourly_aggregate_v1.long_cache_creation_1h_tokens + excluded.long_cache_creation_1h_tokens,
 		total_tokens = usage_hourly_aggregate_v1.total_tokens + excluded.total_tokens,
 		latency_sum_ms = usage_hourly_aggregate_v1.latency_sum_ms + excluded.latency_sum_ms,
 		latency_samples = usage_hourly_aggregate_v1.latency_samples + excluded.latency_samples,
@@ -519,6 +526,7 @@ func upsertAggregateBatch(ctx context.Context, tx *sql.Tx, structureRevision str
 		hourMS,
 		analyticsModelExpression,
 		analyticsModelExpression,
+		usage.LongContextInputTokenThreshold,
 		usage.LongContextInputTokenThreshold,
 		usage.LongContextInputTokenThreshold,
 		usage.LongContextInputTokenThreshold,
@@ -609,11 +617,13 @@ func mergeStoredRows(ctx context.Context, tx *sql.Tx, filter Filter, fromMS, toM
 		sum(cached_tokens),
 		sum(cache_read_tokens),
 		sum(cache_creation_tokens),
+		sum(cache_creation_1h_tokens),
 		sum(long_input_tokens),
 		sum(long_output_tokens),
 		sum(long_cached_tokens),
 		sum(long_cache_read_tokens),
 		sum(long_cache_creation_tokens),
+		sum(long_cache_creation_1h_tokens),
 		sum(total_tokens),
 		sum(latency_sum_ms),
 		sum(latency_samples),
@@ -662,11 +672,13 @@ func rawRowsStatement(filter Filter, fromMS, toMS, afterID int64, structureRevis
 		coalesce(sum(max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0)), 0),
 		coalesce(sum(cache_read_tokens), 0),
 		coalesce(sum(cache_creation_tokens), 0),
+		coalesce(sum(cache_creation_1h_tokens), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then coalesce(normalized_total_input_tokens, input_tokens, 0) else 0 end), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then output_tokens else 0 end), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0) else 0 end), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then cache_read_tokens else 0 end), 0),
 		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then cache_creation_tokens else 0 end), 0),
+		coalesce(sum(case when coalesce(normalized_total_input_tokens, input_tokens, 0) > %d then cache_creation_1h_tokens else 0 end), 0),
 		coalesce(sum(total_tokens), 0),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 		count(nullif(latency_ms, 0)),
@@ -678,6 +690,7 @@ func rawRowsStatement(filter Filter, fromMS, toMS, afterID int64, structureRevis
 		bucketExpr,
 		analyticsModelExpression,
 		analyticsModelExpression,
+		usage.LongContextInputTokenThreshold,
 		usage.LongContextInputTokenThreshold,
 		usage.LongContextInputTokenThreshold,
 		usage.LongContextInputTokenThreshold,
@@ -705,11 +718,13 @@ func scanAndMergeRows(rows *sql.Rows, grouped map[rowKey]*Row) error {
 			&row.CachedTokens,
 			&row.CacheReadTokens,
 			&row.CacheCreationTokens,
+			&row.CacheCreation1hTokens,
 			&row.LongInputTokens,
 			&row.LongOutputTokens,
 			&row.LongCachedTokens,
 			&row.LongCacheReadTokens,
 			&row.LongCacheCreationTokens,
+			&row.LongCacheCreation1hTokens,
 			&row.TotalTokens,
 			&row.LatencySumMS,
 			&row.LatencySamples,
@@ -816,11 +831,13 @@ func mergeRow(grouped map[rowKey]*Row, row Row) {
 	entry.CachedTokens += row.CachedTokens
 	entry.CacheReadTokens += row.CacheReadTokens
 	entry.CacheCreationTokens += row.CacheCreationTokens
+	entry.CacheCreation1hTokens += row.CacheCreation1hTokens
 	entry.LongInputTokens += row.LongInputTokens
 	entry.LongOutputTokens += row.LongOutputTokens
 	entry.LongCachedTokens += row.LongCachedTokens
 	entry.LongCacheReadTokens += row.LongCacheReadTokens
 	entry.LongCacheCreationTokens += row.LongCacheCreationTokens
+	entry.LongCacheCreation1hTokens += row.LongCacheCreation1hTokens
 	entry.TotalTokens += row.TotalTokens
 	entry.LatencySumMS += row.LatencySumMS
 	entry.LatencySamples += row.LatencySamples

@@ -567,3 +567,61 @@ func pricingAccountKey(authFileSnapshot, authIndex string) string {
 	}
 	return key
 }
+
+func TestPricingRollupCarriesCacheCreationTierSplit(t *testing.T) {
+	ctx := context.Background()
+	cfg := testutil.NewConfig(t)
+	st := testutil.NewStore(t, cfg)
+
+	tiered := pricingEvent("tiered", 3_600_001, 10)
+	tiered.CacheCreationTokens = 1_000
+	tiered.CacheCreation5mTokens = 600
+	tiered.CacheCreation1hTokens = 400
+	// An event whose upstream never reported the split must stay at zero rather
+	// than being inferred into either pool.
+	untiered := pricingEvent("untiered", 3_600_002, 10)
+	untiered.CacheCreationTokens = 500
+
+	if _, err := st.UsageEvents.InsertBatch(ctx, []usage.Event{tiered, untiered}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+	if _, err := st.CatchUpUsagePricing(ctx, 10, 10_000); err != nil {
+		t.Fatalf("catch up pricing: %v", err)
+	}
+
+	rows, _, available, err := st.UsagePricingHourlyRows(ctx, store.UsagePricingHourlyFilter{
+		FromMS:        3_600_000,
+		ToMS:          7_200_000,
+		IncludeFailed: true,
+	})
+	if err != nil {
+		t.Fatalf("load pricing rows: %v", err)
+	}
+	if !available {
+		t.Fatal("pricing rows unavailable")
+	}
+	var cacheCreation, cacheCreation1h int64
+	for _, row := range rows {
+		cacheCreation += row.CacheCreationTokens
+		cacheCreation1h += row.CacheCreation1hTokens
+	}
+	if cacheCreation != 1_500 || cacheCreation1h != 400 {
+		t.Fatalf("hourly totals = (%d, %d), want (1500, 400)", cacheCreation, cacheCreation1h)
+	}
+
+	accountRows, _, accountAvailable, err := st.UsagePricingAccountRows(ctx, []string{pricingAccountKey("team-a.json", "auth-team-a")})
+	if err != nil {
+		t.Fatalf("load account rows: %v", err)
+	}
+	if !accountAvailable {
+		t.Fatal("account rows unavailable")
+	}
+	var accountCacheCreation, accountCacheCreation1h int64
+	for _, row := range accountRows {
+		accountCacheCreation += row.CacheCreationTokens
+		accountCacheCreation1h += row.CacheCreation1hTokens
+	}
+	if accountCacheCreation != 1_500 || accountCacheCreation1h != 400 {
+		t.Fatalf("account totals = (%d, %d), want (1500, 400)", accountCacheCreation, accountCacheCreation1h)
+	}
+}

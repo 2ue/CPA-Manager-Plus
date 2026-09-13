@@ -89,11 +89,13 @@ const (
 		cached_tokens integer not null default 0,
 		cache_read_tokens integer not null default 0,
 		cache_creation_tokens integer not null default 0,
+		cache_creation_1h_tokens integer not null default 0,
 		long_input_tokens integer not null default 0,
 		long_output_tokens integer not null default 0,
 		long_cached_tokens integer not null default 0,
 		long_cache_read_tokens integer not null default 0,
 		long_cache_creation_tokens integer not null default 0,
+		long_cache_creation_1h_tokens integer not null default 0,
 		total_tokens integer not null default 0,
 		first_seen_ms integer not null,
 		last_seen_ms integer not null,
@@ -124,11 +126,13 @@ const (
 		cached_tokens integer not null default 0,
 		cache_read_tokens integer not null default 0,
 		cache_creation_tokens integer not null default 0,
+		cache_creation_1h_tokens integer not null default 0,
 		long_input_tokens integer not null default 0,
 		long_output_tokens integer not null default 0,
 		long_cached_tokens integer not null default 0,
 		long_cache_read_tokens integer not null default 0,
 		long_cache_creation_tokens integer not null default 0,
+		long_cache_creation_1h_tokens integer not null default 0,
 		total_tokens integer not null default 0,
 		first_seen_ms integer not null,
 		last_seen_ms integer not null,
@@ -153,11 +157,13 @@ const (
 		cached_tokens integer not null default 0,
 		cache_read_tokens integer not null default 0,
 		cache_creation_tokens integer not null default 0,
+		cache_creation_1h_tokens integer not null default 0,
 		long_input_tokens integer not null default 0,
 		long_output_tokens integer not null default 0,
 		long_cached_tokens integer not null default 0,
 		long_cache_read_tokens integer not null default 0,
 		long_cache_creation_tokens integer not null default 0,
+		long_cache_creation_1h_tokens integer not null default 0,
 		total_tokens integer not null default 0,
 		latency_sum_ms integer not null default 0,
 		latency_samples integer not null default 0,
@@ -179,11 +185,13 @@ const (
 		cached_tokens integer not null default 0,
 		cache_read_tokens integer not null default 0,
 		cache_creation_tokens integer not null default 0,
+		cache_creation_1h_tokens integer not null default 0,
 		long_input_tokens integer not null default 0,
 		long_output_tokens integer not null default 0,
 		long_cached_tokens integer not null default 0,
 		long_cache_read_tokens integer not null default 0,
 		long_cache_creation_tokens integer not null default 0,
+		long_cache_creation_1h_tokens integer not null default 0,
 		total_tokens integer not null default 0,
 		latency_sum_ms integer not null default 0,
 		latency_samples integer not null default 0,
@@ -270,6 +278,8 @@ func Migrate(db *sql.DB) error {
 			cache_tokens integer not null default 0,
 			cache_read_tokens integer not null default 0,
 			cache_creation_tokens integer not null default 0,
+			cache_creation_5m_tokens integer not null default 0,
+			cache_creation_1h_tokens integer not null default 0,
 			cache_usage_source text,
 			raw_input_tokens integer,
 			normalized_uncached_input_tokens integer,
@@ -337,11 +347,13 @@ func Migrate(db *sql.DB) error {
 			cached_tokens integer not null default 0,
 			cache_read_tokens integer not null default 0,
 			cache_creation_tokens integer not null default 0,
+			cache_creation_1h_tokens integer not null default 0,
 			long_input_tokens integer not null default 0,
 			long_output_tokens integer not null default 0,
 			long_cached_tokens integer not null default 0,
 			long_cache_read_tokens integer not null default 0,
 			long_cache_creation_tokens integer not null default 0,
+			long_cache_creation_1h_tokens integer not null default 0,
 			total_tokens integer not null default 0,
 			latency_sum_ms integer not null default 0,
 			latency_samples integer not null default 0,
@@ -401,11 +413,13 @@ func Migrate(db *sql.DB) error {
 			cached_tokens integer not null default 0,
 			cache_read_tokens integer not null default 0,
 			cache_creation_tokens integer not null default 0,
+			cache_creation_1h_tokens integer not null default 0,
 			long_input_tokens integer not null default 0,
 			long_output_tokens integer not null default 0,
 			long_cached_tokens integer not null default 0,
 			long_cache_read_tokens integer not null default 0,
 			long_cache_creation_tokens integer not null default 0,
+			long_cache_creation_1h_tokens integer not null default 0,
 			total_tokens integer not null default 0,
 			zero_token_calls integer not null default 0,
 			latency_sum_ms integer not null default 0,
@@ -446,11 +460,13 @@ func Migrate(db *sql.DB) error {
 			cached_tokens integer not null default 0,
 			cache_read_tokens integer not null default 0,
 			cache_creation_tokens integer not null default 0,
+			cache_creation_1h_tokens integer not null default 0,
 			long_input_tokens integer not null default 0,
 			long_output_tokens integer not null default 0,
 			long_cached_tokens integer not null default 0,
 			long_cache_read_tokens integer not null default 0,
 			long_cache_creation_tokens integer not null default 0,
+			long_cache_creation_1h_tokens integer not null default 0,
 			total_tokens integer not null default 0,
 			zero_token_calls integer not null default 0,
 			latency_sum_ms integer not null default 0,
@@ -515,6 +531,7 @@ func Migrate(db *sql.DB) error {
 			cache_tokens integer not null,
 			cache_read_tokens integer not null,
 			cache_creation_tokens integer not null,
+			cache_creation_1h_tokens integer not null default 0,
 			normalized_total_input_tokens integer not null,
 			total_tokens integer not null,
 			header_quota_plan_type text not null,
@@ -972,6 +989,9 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	if err := ensureUsageRollupLongContextColumns(db); err != nil {
+		return err
+	}
+	if err := ensureUsageRollupCacheCreationTierColumns(db); err != nil {
 		return err
 	}
 	if err := ensureUsageHourlyAggregateRevisionColumns(db); err != nil {
@@ -2601,6 +2621,96 @@ func ensureUsageRollupLongContextColumns(db *sql.DB) error {
 	return tx.Commit()
 }
 
+// ensureUsageRollupCacheCreationTierColumns adds the 1h ephemeral cache-write
+// columns to every cost-bearing rollup and to the per-event projection.
+//
+// Unlike the long-context migration this deliberately does NOT park the tables
+// or schedule a rebuild. The 1h/5m split only exists in usage_events from the
+// release that started recording it; every pre-existing event row carries 0, so
+// re-aggregating all of history would burn a full rebuild to arrive at exactly
+// the zeros the new columns already default to. Zero keeps meaning "split not
+// reported", which prices the whole write at the 5m rate.
+func ensureUsageRollupCacheCreationTierColumns(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin usage rollup cache tier migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, table := range []struct {
+		name    string
+		columns []string
+	}{
+		{name: usageAccountModelRollupsTable, columns: usageCacheCreationTierColumns},
+		{name: "usage_dashboard_hourly_rollups", columns: usageCacheCreationTierColumns},
+		{name: usageHourlyAggregateTable, columns: usageCacheCreationTierColumns},
+		{name: "usage_pricing_hourly_rollups_v1", columns: usageCacheCreationTierColumns},
+		{name: usagePricingAccountRollupsTable, columns: usageCacheCreationTierColumns},
+		{name: usageMonitoringAccountDailyTable, columns: usageCacheCreationTierColumns},
+		{name: usageMonitoringAPIKeyDailyTable, columns: usageCacheCreationTierColumns},
+		// The projection mirrors one event per row and has no long-context split.
+		{name: "usage_monitoring_event_projection_v1", columns: []string{"cache_creation_1h_tokens"}},
+	} {
+		existing, err := tableColumnSet(tx, table.name)
+		if err != nil {
+			return err
+		}
+		if len(existing) == 0 {
+			continue
+		}
+		for _, column := range table.columns {
+			if _, ok := existing[column]; ok {
+				continue
+			}
+			if _, err := tx.Exec(fmt.Sprintf(
+				`alter table %s add column %s integer not null default 0`, table.name, column,
+			)); err != nil {
+				return fmt.Errorf("add %s.%s: %w", table.name, column, err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit usage rollup cache tier migration: %w", err)
+	}
+	return nil
+}
+
+var usageCacheCreationTierColumns = []string{
+	"cache_creation_1h_tokens",
+	"long_cache_creation_1h_tokens",
+}
+
+// tableColumnSet returns the table's column names, or an empty set when the
+// table does not exist yet (a fresh database creates it with the columns
+// already in place).
+func tableColumnSet(tx *sql.Tx, tableName string) (map[string]struct{}, error) {
+	rows, err := tx.Query(`pragma table_info(` + tableName + `)`)
+	if err != nil {
+		return nil, fmt.Errorf("inspect %s columns: %w", tableName, err)
+	}
+	columns := map[string]struct{}{}
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue any
+		var primaryKeyPosition int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKeyPosition); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("scan %s columns: %w", tableName, err)
+		}
+		columns[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("inspect %s columns: %w", tableName, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close %s column inspection: %w", tableName, err)
+	}
+	return columns, nil
+}
+
 func ensureAccountActionCandidateColumns(db *sql.DB) error {
 	rows, err := db.Query(`pragma table_info(account_action_candidates)`)
 	if err != nil {
@@ -2884,6 +2994,11 @@ func ensureUsageEventSnapshotColumns(db *sql.DB) error {
 		{name: "cache_input_mode", definition: "text"},
 		{name: "cache_read_tokens", definition: "integer not null default 0"},
 		{name: "cache_creation_tokens", definition: "integer not null default 0"},
+		// Anthropic's ephemeral cache TTL split. Rows written before this column
+		// existed default to 0/0, which billing reads as "tiers unknown" and
+		// prices as all-5m; historical requests cannot be reclassified.
+		{name: "cache_creation_5m_tokens", definition: "integer not null default 0"},
+		{name: "cache_creation_1h_tokens", definition: "integer not null default 0"},
 		{name: "cache_usage_source", definition: "text"},
 		{name: "raw_input_tokens", definition: "integer"},
 		{name: "normalized_uncached_input_tokens", definition: "integer"},

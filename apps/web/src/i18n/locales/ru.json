@@ -2489,9 +2489,13 @@
     "realtime_usage_cached_label": "Кэш",
     "realtime_usage_cache_read_label": "Чтение кэша",
     "realtime_usage_cache_creation_label": "Создание кэша",
+    "realtime_usage_cache_creation_5m_label": "Создание кэша (5 мин)",
+    "realtime_usage_cache_creation_1h_label": "Создание кэша (1 ч)",
+    "realtime_usage_cache_ttl_label": "TTL записи кэша: {{ttl}}",
     "realtime_usage_raw_input_label": "Исходный ввод",
     "realtime_usage_cache_source_label": "Источник кэша",
     "realtime_usage_cache_source_none": "Не сообщён",
+    "realtime_usage_details_label": "Показать детали использования",
     "reasoning_effort": "Уровень рассуждения",
     "reasoning_effort_short": "Уровень",
     "reasoning_service_short": "Мышление / сервис",
@@ -3312,6 +3316,18 @@
       "cache": "Управление кэшем",
       "source": "Редактор файла",
       "manager": "Конфигурация CPA Manager Plus"
+    },
+    "claude_cache_ttl": {
+      "title": "Время жизни кэша Claude (TTL)",
+      "description": "Принудительно задаёт время жизни эфемерного кэша для исходящих запросов Claude. Соответствует секции claude-code в конфигурации шлюза.",
+      "badge": "Перезаписывает запросы к upstream",
+      "warning": "В отличие от правил для токенов кэша ниже, эта настройка перезаписывает тело запроса, отправляемого к вышестоящему сервису. Она определяет, в какой пул кэша выполняется запись и чтение, поэтому одновременно меняет реальную долю попаданий в кэш и тариф (запись на 1 час тарифицируется в 2x от базового ввода, на 5 минут — в 1.25x).",
+      "label": "Время жизни кэша",
+      "passthrough": "Без изменений (значение вышестоящего сервиса)",
+      "five_minutes": "5 минут",
+      "one_hour": "1 час",
+      "hint_passthrough": "Не изменяет параметры кэша вызывающей стороны; пул на 1 час по-прежнему выбирается по типу учётной записи, как в оригинальном Claude Code.",
+      "hint_forced": "Применяется принудительно и к API-ключам, и к OAuth-аккаунтам; заголовок extended-cache-ttl beta добавляется автоматически, когда требуется 1 час. Запросы субагентов и проб всегда остаются без TTL."
     },
     "cache_adjustment": {
       "title": "Управление токенами кэша",

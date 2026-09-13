@@ -3,6 +3,7 @@ import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver
 import {
   calculateCost,
   normalizeAuthIndex,
+  normalizeCacheCreationTiers,
   type ModelPrice,
   type UsageDetailWithEndpoint,
 } from '@/utils/usage';
@@ -133,6 +134,14 @@ export const buildEventRows = (
       const reasoningTokens = Math.max(Number(detail.tokens?.reasoning_tokens) || 0, 0);
       const cacheReadTokens = Math.max(Number(detail.tokens?.cache_read_tokens) || 0, 0);
       const cacheCreationTokens = Math.max(Number(detail.tokens?.cache_creation_tokens) || 0, 0);
+      // Zero on both tiers means the split is unknown, not an all-5m write; the
+      // row renders the plain cache-write figure without a TTL badge then.
+      const { tokens5m: cacheCreation5mTokens, tokens1h: cacheCreation1hTokens } =
+        normalizeCacheCreationTiers(
+          detail.tokens?.cache_creation_5m_tokens,
+          detail.tokens?.cache_creation_1h_tokens,
+          cacheCreationTokens
+        );
       const cachedTokens = Math.max(
         Math.max(Number(detail.tokens?.cached_tokens) || 0, 0),
         Math.max(Number(detail.tokens?.cache_tokens) || 0, 0)
@@ -257,6 +266,8 @@ export const buildEventRows = (
         cachedTokens,
         cacheReadTokens,
         cacheCreationTokens,
+        cacheCreation5mTokens,
+        cacheCreation1hTokens,
         cacheUsageSource: readString(detail.cache_usage_source ?? detail.cacheUsageSource),
         totalTokens,
         totalCost,

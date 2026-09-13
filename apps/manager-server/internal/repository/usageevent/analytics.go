@@ -16,22 +16,26 @@ import (
 )
 
 var (
-	longContextThresholdSQL = strconv.FormatInt(usage.LongContextInputTokenThreshold, 10)
-	compatCachedExpr        = "max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0)"
-	compatCachedFExpr       = "max(max(f.cached_tokens, f.cache_tokens) - max(f.cache_read_tokens, 0) - max(f.cache_creation_tokens, 0), 0)"
-	normalizedInputExpr     = "coalesce(normalized_total_input_tokens, input_tokens)"
-	normalizedInputFExpr    = "coalesce(f.normalized_total_input_tokens, f.input_tokens)"
-	longInputExpr           = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then " + normalizedInputExpr + " else 0 end"
-	longOutputExpr          = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then output_tokens else 0 end"
-	longCachedExpr          = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then " + compatCachedExpr + " else 0 end"
-	longCacheReadExpr       = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then cache_read_tokens else 0 end"
-	longCacheCreationExpr   = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then cache_creation_tokens else 0 end"
-	longInputFExpr          = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then " + normalizedInputFExpr + " else 0 end"
-	longOutputFExpr         = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then f.output_tokens else 0 end"
-	longCachedFExpr         = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then " + compatCachedFExpr + " else 0 end"
-	longCacheReadFExpr      = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then f.cache_read_tokens else 0 end"
-	longCacheCreationFExpr  = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then f.cache_creation_tokens else 0 end"
-	credentialIDExpr        = "coalesce(nullif(auth_file_snapshot, ''), nullif(auth_index, ''), nullif(source_hash, ''), nullif(source, ''), '-')"
+	longContextThresholdSQL  = strconv.FormatInt(usage.LongContextInputTokenThreshold, 10)
+	compatCachedExpr         = "max(max(cached_tokens, cache_tokens) - max(cache_read_tokens, 0) - max(cache_creation_tokens, 0), 0)"
+	compatCachedFExpr        = "max(max(f.cached_tokens, f.cache_tokens) - max(f.cache_read_tokens, 0) - max(f.cache_creation_tokens, 0), 0)"
+	normalizedInputExpr      = "coalesce(normalized_total_input_tokens, input_tokens)"
+	normalizedInputFExpr     = "coalesce(f.normalized_total_input_tokens, f.input_tokens)"
+	longInputExpr            = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then " + normalizedInputExpr + " else 0 end"
+	longOutputExpr           = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then output_tokens else 0 end"
+	longCachedExpr           = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then " + compatCachedExpr + " else 0 end"
+	longCacheReadExpr        = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then cache_read_tokens else 0 end"
+	longCacheCreationExpr    = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then cache_creation_tokens else 0 end"
+	cacheCreation1hExpr      = "coalesce(cache_creation_1h_tokens, 0)"
+	cacheCreation1hFExpr     = "coalesce(f.cache_creation_1h_tokens, 0)"
+	longCacheCreation1hExpr  = "case when " + normalizedInputExpr + " > " + longContextThresholdSQL + " then " + cacheCreation1hExpr + " else 0 end"
+	longCacheCreation1hFExpr = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then " + cacheCreation1hFExpr + " else 0 end"
+	longInputFExpr           = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then " + normalizedInputFExpr + " else 0 end"
+	longOutputFExpr          = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then f.output_tokens else 0 end"
+	longCachedFExpr          = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then " + compatCachedFExpr + " else 0 end"
+	longCacheReadFExpr       = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then f.cache_read_tokens else 0 end"
+	longCacheCreationFExpr   = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then f.cache_creation_tokens else 0 end"
+	credentialIDExpr         = "coalesce(nullif(auth_file_snapshot, ''), nullif(auth_index, ''), nullif(source_hash, ''), nullif(source, ''), '-')"
 )
 
 type AnalyticsFilter struct {
@@ -113,22 +117,23 @@ type APIKeySelectorValue struct {
 type TimelinePoint struct {
 	usage.LongContextTokens
 	usage.PricingBand
-	BucketMS            int64
-	Model               string
-	BillingModel        string
-	ServiceTier         string
-	Calls               int64
-	Tokens              int64
-	Success             int64
-	Failure             int64
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	AvgLatencyMS        sql.NullFloat64
-	LatencySamples      int64
+	BucketMS              int64
+	Model                 string
+	BillingModel          string
+	ServiceTier           string
+	Calls                 int64
+	Tokens                int64
+	Success               int64
+	Failure               int64
+	InputTokens           int64
+	OutputTokens          int64
+	ReasoningTokens       int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	AvgLatencyMS          sql.NullFloat64
+	LatencySamples        int64
 }
 
 type HourlyPoint struct {
@@ -140,22 +145,23 @@ type HourlyPoint struct {
 type HeatmapPoint struct {
 	usage.LongContextTokens
 	usage.PricingBand
-	Weekday             int
-	Hour                int
-	Model               string
-	BillingModel        string
-	ServiceTier         string
-	APIKeyHash          string
-	Provider            string
-	Calls               int64
-	SuccessCalls        int64
-	FailureCalls        int64
-	InputTokens         int64
-	OutputTokens        int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
+	Weekday               int
+	Hour                  int
+	Model                 string
+	BillingModel          string
+	ServiceTier           string
+	APIKeyHash            string
+	Provider              string
+	Calls                 int64
+	SuccessCalls          int64
+	FailureCalls          int64
+	InputTokens           int64
+	OutputTokens          int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	TotalTokens           int64
 }
 
 type ChannelModelStat struct {
@@ -178,6 +184,7 @@ type ChannelModelStat struct {
 	CachedTokens          int64
 	CacheReadTokens       int64
 	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
 	TotalTokens           int64
 	AvgLatencyMS          sql.NullFloat64
 	LatencySamples        int64
@@ -219,6 +226,7 @@ type AccountModelStat struct {
 	CachedTokens                 int64
 	CacheReadTokens              int64
 	CacheCreationTokens          int64
+	CacheCreation1hTokens        int64
 	TotalTokens                  int64
 	LastSeenMS                   int64
 	AvgLatencyMS                 sql.NullFloat64
@@ -250,20 +258,21 @@ type AccountWindowUsageQuery struct {
 type AccountWindowModelStat struct {
 	usage.LongContextTokens
 	usage.PricingBand
-	RequestIndex        int
-	Model               string
-	BillingModel        string
-	ServiceTier         string
-	Calls               int64
-	SuccessCalls        int64
-	FailureCalls        int64
-	InputTokens         int64
-	OutputTokens        int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
-	LastSeenMS          int64
+	RequestIndex          int
+	Model                 string
+	BillingModel          string
+	ServiceTier           string
+	Calls                 int64
+	SuccessCalls          int64
+	FailureCalls          int64
+	InputTokens           int64
+	OutputTokens          int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	TotalTokens           int64
+	LastSeenMS            int64
 }
 
 type CredentialModelStat struct {
@@ -290,6 +299,7 @@ type CredentialModelStat struct {
 	CachedTokens          int64
 	CacheReadTokens       int64
 	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
 	TotalTokens           int64
 	LastSeenMS            int64
 	AvgLatencyMS          sql.NullFloat64
@@ -323,6 +333,7 @@ type CredentialTimelinePoint struct {
 	CachedTokens          int64
 	CacheReadTokens       int64
 	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
 	AvgLatencyMS          sql.NullFloat64
 	LatencySamples        int64
 }
@@ -330,23 +341,24 @@ type CredentialTimelinePoint struct {
 type APIKeyTimelinePoint struct {
 	usage.LongContextTokens
 	usage.PricingBand
-	APIKeyHash          string
-	BucketMS            int64
-	Model               string
-	BillingModel        string
-	ServiceTier         string
-	Calls               int64
-	Tokens              int64
-	Success             int64
-	Failure             int64
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	AvgLatencyMS        sql.NullFloat64
-	LatencySamples      int64
+	APIKeyHash            string
+	BucketMS              int64
+	Model                 string
+	BillingModel          string
+	ServiceTier           string
+	Calls                 int64
+	Tokens                int64
+	Success               int64
+	Failure               int64
+	InputTokens           int64
+	OutputTokens          int64
+	ReasoningTokens       int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	AvgLatencyMS          sql.NullFloat64
+	LatencySamples        int64
 }
 
 type APIKeyModelStat struct {
@@ -371,6 +383,7 @@ type APIKeyModelStat struct {
 	CachedTokens          int64
 	CacheReadTokens       int64
 	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
 	TotalTokens           int64
 	LastSeenMS            int64
 	AvgLatencyMS          sql.NullFloat64
@@ -378,25 +391,26 @@ type APIKeyModelStat struct {
 }
 
 type TaskBucket struct {
-	BucketKey           string
-	Total               int64
-	Success             int64
-	Failure             int64
-	FirstMS             int64
-	LastMS              int64
-	Source              string
-	SourceHash          string
-	AuthIndex           string
-	Models              string
-	Endpoints           string
-	InputTokens         int64
-	OutputTokens        int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
-	AvgLatencyMS        sql.NullFloat64
-	MaxLatencyMS        sql.NullInt64
+	BucketKey             string
+	Total                 int64
+	Success               int64
+	Failure               int64
+	FirstMS               int64
+	LastMS                int64
+	Source                string
+	SourceHash            string
+	AuthIndex             string
+	Models                string
+	Endpoints             string
+	InputTokens           int64
+	OutputTokens          int64
+	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	CacheCreation1hTokens int64
+	TotalTokens           int64
+	AvgLatencyMS          sql.NullFloat64
+	MaxLatencyMS          sql.NullInt64
 }
 
 type EventPageItem struct {
@@ -434,6 +448,8 @@ type EventPageItem struct {
 	CachedTokens           int64
 	CacheReadTokens        int64
 	CacheCreationTokens    int64
+	CacheCreation5mTokens  int64
+	CacheCreation1hTokens  int64
 	CacheUsageSource       string
 	ReasoningTokens        int64
 	TotalTokens            int64
@@ -496,6 +512,7 @@ func (r *repository) AggregateWithFilter(ctx context.Context, filter AnalyticsFi
 	coalesce(sum(`+compatCachedExpr+`), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(`+cacheCreation1hExpr+`), 0),
 	coalesce(sum(total_tokens), 0),
 	avg(nullif(latency_ms, 0)),
 	coalesce(sum(case when total_tokens = 0 and failed = 0 then 1 else 0 end), 0)
@@ -513,6 +530,7 @@ from usage_events `+where, args...)
 		&agg.CachedTokens,
 		&agg.CacheReadTokens,
 		&agg.CacheCreationTokens,
+		&agg.CacheCreation1hTokens,
 		&agg.TotalTokens,
 		&agg.AvgLatencyMS,
 		&agg.ZeroTokenCalls,
@@ -541,11 +559,13 @@ select
 	coalesce(sum(` + compatCachedExpr + `), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(` + cacheCreation1hExpr + `), 0),
 	coalesce(sum(` + longInputExpr + `), 0),
 	coalesce(sum(` + longOutputExpr + `), 0),
 	coalesce(sum(` + longCachedExpr + `), 0),
 	coalesce(sum(` + longCacheReadExpr + `), 0),
 	coalesce(sum(` + longCacheCreationExpr + `), 0),
+	coalesce(sum(` + longCacheCreation1hExpr + `), 0),
 	coalesce(sum(total_tokens), 0)
 from banded_usage_events ` + where + `
 group by analytics_model_value, billing_model, pricing_model_value, context_threshold_tokens_value, coalesce(service_tier, '')
@@ -575,11 +595,13 @@ select
 	coalesce(sum(` + compatCachedFExpr + `), 0),
 	coalesce(sum(f.cache_read_tokens), 0),
 	coalesce(sum(f.cache_creation_tokens), 0),
+	coalesce(sum(` + cacheCreation1hFExpr + `), 0),
 	coalesce(sum(` + longInputFExpr + `), 0),
 	coalesce(sum(` + longOutputFExpr + `), 0),
 	coalesce(sum(` + longCachedFExpr + `), 0),
 	coalesce(sum(` + longCacheReadFExpr + `), 0),
 	coalesce(sum(` + longCacheCreationFExpr + `), 0),
+	coalesce(sum(` + longCacheCreation1hFExpr + `), 0),
 	coalesce(sum(f.total_tokens), 0)
 from filtered f
 join top_models t on t.model = f.analytics_model_value
@@ -610,11 +632,13 @@ order by max(t.model_calls) desc, f.analytics_model_value, calls desc`
 			&stat.CachedTokens,
 			&stat.CacheReadTokens,
 			&stat.CacheCreationTokens,
+			&stat.CacheCreation1hTokens,
 			&stat.LongInputTokens,
 			&stat.LongOutputTokens,
 			&stat.LongCachedTokens,
 			&stat.LongCacheReadTokens,
 			&stat.LongCacheCreationTokens,
+			&stat.LongCacheCreation1hTokens,
 			&stat.TotalTokens,
 		); err != nil {
 			return nil, err
@@ -641,6 +665,7 @@ select
 	`+compatCachedExpr+`,
 	cache_read_tokens,
 	cache_creation_tokens,
+	coalesce(cache_creation_1h_tokens, 0),
 	total_tokens,
 	latency_ms
 from banded_usage_events %s
@@ -676,6 +701,7 @@ order by timestamp_ms, analytics_model_value`, where)
 		var cachedTokens int64
 		var cacheReadTokens int64
 		var cacheCreationTokens int64
+		var cacheCreation1hTokens int64
 		var totalTokens int64
 		if err := rows.Scan(
 			&timestampMS,
@@ -691,6 +717,7 @@ order by timestamp_ms, analytics_model_value`, where)
 			&cachedTokens,
 			&cacheReadTokens,
 			&cacheCreationTokens,
+			&cacheCreation1hTokens,
 			&totalTokens,
 			&latency,
 		); err != nil {
@@ -732,7 +759,8 @@ order by timestamp_ms, analytics_model_value`, where)
 		point.CachedTokens += cachedTokens
 		point.CacheReadTokens += cacheReadTokens
 		point.CacheCreationTokens += cacheCreationTokens
-		point.AddIfLongContext(inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens)
+		point.CacheCreation1hTokens += cacheCreation1hTokens
+		point.AddIfLongContext(inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens)
 		if latency.Valid && latency.Float64 > 0 {
 			point.AvgLatencyMS.Float64 += latency.Float64
 			point.LatencySamples += 1
@@ -774,6 +802,7 @@ select
 	`+compatCachedExpr+`,
 	cache_read_tokens,
 	cache_creation_tokens,
+	coalesce(cache_creation_1h_tokens, 0),
 	total_tokens,
 	latency_ms
 from banded_usage_events %s
@@ -816,6 +845,7 @@ order by timestamp_ms, api_key_hash, analytics_model_value`, where)
 			&point.CachedTokens,
 			&point.CacheReadTokens,
 			&point.CacheCreationTokens,
+			&point.CacheCreation1hTokens,
 			&totalTokens,
 			&latency,
 		); err != nil {
@@ -856,7 +886,8 @@ order by timestamp_ms, api_key_hash, analytics_model_value`, where)
 		entry.CachedTokens += point.CachedTokens
 		entry.CacheReadTokens += point.CacheReadTokens
 		entry.CacheCreationTokens += point.CacheCreationTokens
-		entry.AddIfLongContext(point.InputTokens, point.OutputTokens, point.CachedTokens, point.CacheReadTokens, point.CacheCreationTokens)
+		entry.CacheCreation1hTokens += point.CacheCreation1hTokens
+		entry.AddIfLongContext(point.InputTokens, point.OutputTokens, point.CachedTokens, point.CacheReadTokens, point.CacheCreationTokens, point.CacheCreation1hTokens)
 		if latency.Valid && latency.Float64 > 0 {
 			entry.AvgLatencyMS.Float64 += latency.Float64
 			entry.LatencySamples += 1
@@ -1277,6 +1308,7 @@ select
 	`+compatCachedExpr+`,
 	cache_read_tokens,
 	cache_creation_tokens,
+	coalesce(cache_creation_1h_tokens, 0),
 	total_tokens
 from banded_usage_events `+where+`
 order by timestamp_ms, model`, args...)
@@ -1316,6 +1348,7 @@ order by timestamp_ms, model`, args...)
 		var cachedTokens int64
 		var cacheReadTokens int64
 		var cacheCreationTokens int64
+		var cacheCreation1hTokens int64
 		var totalTokens int64
 		if err := rows.Scan(
 			&timestampMS,
@@ -1332,6 +1365,7 @@ order by timestamp_ms, model`, args...)
 			&cachedTokens,
 			&cacheReadTokens,
 			&cacheCreationTokens,
+			&cacheCreation1hTokens,
 			&totalTokens,
 		); err != nil {
 			return nil, err
@@ -1377,7 +1411,8 @@ order by timestamp_ms, model`, args...)
 		point.CachedTokens += cachedTokens
 		point.CacheReadTokens += cacheReadTokens
 		point.CacheCreationTokens += cacheCreationTokens
-		point.AddIfLongContext(inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens)
+		point.CacheCreation1hTokens += cacheCreation1hTokens
+		point.AddIfLongContext(inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens)
 		point.TotalTokens += totalTokens
 	}
 	if err := rows.Err(); err != nil {
@@ -1413,11 +1448,13 @@ select
 	coalesce(sum(`+compatCachedExpr+`), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(`+cacheCreation1hExpr+`), 0),
 	coalesce(sum(`+longInputExpr+`), 0),
 	coalesce(sum(`+longOutputExpr+`), 0),
 	coalesce(sum(`+longCachedExpr+`), 0),
 	coalesce(sum(`+longCacheReadExpr+`), 0),
 	coalesce(sum(`+longCacheCreationExpr+`), 0),
+	coalesce(sum(`+longCacheCreation1hExpr+`), 0),
 	coalesce(sum(total_tokens), 0),
 	avg(nullif(latency_ms, 0)),
 	count(nullif(latency_ms, 0))
@@ -1452,11 +1489,13 @@ order by count(*) desc`, args...)
 			&stat.CachedTokens,
 			&stat.CacheReadTokens,
 			&stat.CacheCreationTokens,
+			&stat.CacheCreation1hTokens,
 			&stat.LongInputTokens,
 			&stat.LongOutputTokens,
 			&stat.LongCachedTokens,
 			&stat.LongCacheReadTokens,
 			&stat.LongCacheCreationTokens,
+			&stat.LongCacheCreation1hTokens,
 			&stat.TotalTokens,
 			&stat.AvgLatencyMS,
 			&stat.LatencySamples,
@@ -1538,11 +1577,13 @@ select
 	coalesce(sum(`+compatCachedExpr+`), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(`+cacheCreation1hExpr+`), 0),
 	coalesce(sum(`+longInputExpr+`), 0),
 	coalesce(sum(`+longOutputExpr+`), 0),
 	coalesce(sum(`+longCachedExpr+`), 0),
 	coalesce(sum(`+longCacheReadExpr+`), 0),
 	coalesce(sum(`+longCacheCreationExpr+`), 0),
+	coalesce(sum(`+longCacheCreation1hExpr+`), 0),
 	coalesce(sum(total_tokens), 0),
 	max(timestamp_ms),
 	coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
@@ -1582,11 +1623,13 @@ order by max(timestamp_ms) desc, count(*) desc`, args...)
 			&stat.CachedTokens,
 			&stat.CacheReadTokens,
 			&stat.CacheCreationTokens,
+			&stat.CacheCreation1hTokens,
 			&stat.LongInputTokens,
 			&stat.LongOutputTokens,
 			&stat.LongCachedTokens,
 			&stat.LongCacheReadTokens,
 			&stat.LongCacheCreationTokens,
+			&stat.LongCacheCreation1hTokens,
 			&stat.TotalTokens,
 			&stat.LastSeenMS,
 			&stat.LatencySumMS,
@@ -1649,11 +1692,13 @@ select
 	coalesce(sum(`+compatCachedExpr+`), 0),
 	coalesce(sum(e.cache_read_tokens), 0),
 	coalesce(sum(e.cache_creation_tokens), 0),
+	coalesce(sum(coalesce(e.cache_creation_1h_tokens, 0)), 0),
 	coalesce(sum(`+longInputExpr+`), 0),
 	coalesce(sum(`+longOutputExpr+`), 0),
 	coalesce(sum(`+longCachedExpr+`), 0),
 	coalesce(sum(`+longCacheReadExpr+`), 0),
 	coalesce(sum(`+longCacheCreationExpr+`), 0),
+	coalesce(sum(`+longCacheCreation1hExpr+`), 0),
 	coalesce(sum(e.total_tokens), 0),
 	max(e.timestamp_ms)
 from window_targets w
@@ -1684,11 +1729,13 @@ order by w.request_index, max(e.timestamp_ms) desc`, args...)
 			&stat.CachedTokens,
 			&stat.CacheReadTokens,
 			&stat.CacheCreationTokens,
+			&stat.CacheCreation1hTokens,
 			&stat.LongInputTokens,
 			&stat.LongOutputTokens,
 			&stat.LongCachedTokens,
 			&stat.LongCacheReadTokens,
 			&stat.LongCacheCreationTokens,
+			&stat.LongCacheCreation1hTokens,
 			&stat.TotalTokens,
 			&stat.LastSeenMS,
 		); err != nil {
@@ -1864,11 +1911,13 @@ select
 	coalesce(sum(`+compatCachedExpr+`), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(`+cacheCreation1hExpr+`), 0),
 	coalesce(sum(`+longInputExpr+`), 0),
 	coalesce(sum(`+longOutputExpr+`), 0),
 	coalesce(sum(`+longCachedExpr+`), 0),
 	coalesce(sum(`+longCacheReadExpr+`), 0),
 	coalesce(sum(`+longCacheCreationExpr+`), 0),
+	coalesce(sum(`+longCacheCreation1hExpr+`), 0),
 	coalesce(sum(total_tokens), 0),
 	max(timestamp_ms),
 	avg(nullif(latency_ms, 0)),
@@ -1908,11 +1957,13 @@ order by max(timestamp_ms) desc, count(*) desc`, args...)
 			&stat.CachedTokens,
 			&stat.CacheReadTokens,
 			&stat.CacheCreationTokens,
+			&stat.CacheCreation1hTokens,
 			&stat.LongInputTokens,
 			&stat.LongOutputTokens,
 			&stat.LongCachedTokens,
 			&stat.LongCacheReadTokens,
 			&stat.LongCacheCreationTokens,
+			&stat.LongCacheCreation1hTokens,
 			&stat.TotalTokens,
 			&stat.LastSeenMS,
 			&stat.AvgLatencyMS,
@@ -1992,6 +2043,7 @@ select
 	`+compatCachedExpr+`,
 	cache_read_tokens,
 	cache_creation_tokens,
+	coalesce(cache_creation_1h_tokens, 0),
 	total_tokens,
 	latency_ms
 from banded_usage_events %s
@@ -2046,6 +2098,7 @@ from banded_usage_events %s
 			&point.CachedTokens,
 			&point.CacheReadTokens,
 			&point.CacheCreationTokens,
+			&point.CacheCreation1hTokens,
 			&totalTokens,
 			&latency,
 		); err != nil {
@@ -2103,7 +2156,8 @@ from banded_usage_events %s
 		entry.CachedTokens += point.CachedTokens
 		entry.CacheReadTokens += point.CacheReadTokens
 		entry.CacheCreationTokens += point.CacheCreationTokens
-		entry.AddIfLongContext(point.InputTokens, point.OutputTokens, point.CachedTokens, point.CacheReadTokens, point.CacheCreationTokens)
+		entry.CacheCreation1hTokens += point.CacheCreation1hTokens
+		entry.AddIfLongContext(point.InputTokens, point.OutputTokens, point.CachedTokens, point.CacheReadTokens, point.CacheCreationTokens, point.CacheCreation1hTokens)
 		if latency.Valid && latency.Float64 > 0 {
 			entry.AvgLatencyMS.Float64 += latency.Float64
 			entry.LatencySamples += 1
@@ -2173,11 +2227,13 @@ func (r *repository) credentialTimelineHourlyWithFilter(ctx context.Context, fil
 	coalesce(sum(` + compatCachedExpr + `), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(` + cacheCreation1hExpr + `), 0),
 	coalesce(sum(` + longInputExpr + `), 0),
 	coalesce(sum(` + longOutputExpr + `), 0),
 	coalesce(sum(` + longCachedExpr + `), 0),
 	coalesce(sum(` + longCacheReadExpr + `), 0),
 	coalesce(sum(` + longCacheCreationExpr + `), 0),
+	coalesce(sum(` + longCacheCreation1hExpr + `), 0),
 	avg(case when latency_ms > 0 then latency_ms end),
 	count(case when latency_ms > 0 then 1 end)
 ` + queryFrom + where + `
@@ -2224,11 +2280,13 @@ group by ` + bucketExpr + `, credential_id,
 			&point.CachedTokens,
 			&point.CacheReadTokens,
 			&point.CacheCreationTokens,
+			&point.CacheCreation1hTokens,
 			&point.LongInputTokens,
 			&point.LongOutputTokens,
 			&point.LongCachedTokens,
 			&point.LongCacheReadTokens,
 			&point.LongCacheCreationTokens,
+			&point.LongCacheCreation1hTokens,
 			&point.AvgLatencyMS,
 			&point.LatencySamples,
 		); err != nil {
@@ -2391,11 +2449,13 @@ select
 	coalesce(sum(`+compatCachedExpr+`), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(`+cacheCreation1hExpr+`), 0),
 	coalesce(sum(`+longInputExpr+`), 0),
 	coalesce(sum(`+longOutputExpr+`), 0),
 	coalesce(sum(`+longCachedExpr+`), 0),
 	coalesce(sum(`+longCacheReadExpr+`), 0),
 	coalesce(sum(`+longCacheCreationExpr+`), 0),
+	coalesce(sum(`+longCacheCreation1hExpr+`), 0),
 	coalesce(sum(total_tokens), 0),
 	max(timestamp_ms),
 	avg(nullif(latency_ms, 0)),
@@ -2433,11 +2493,13 @@ order by max(timestamp_ms) desc, count(*) desc`, args...)
 			&stat.CachedTokens,
 			&stat.CacheReadTokens,
 			&stat.CacheCreationTokens,
+			&stat.CacheCreation1hTokens,
 			&stat.LongInputTokens,
 			&stat.LongOutputTokens,
 			&stat.LongCachedTokens,
 			&stat.LongCacheReadTokens,
 			&stat.LongCacheCreationTokens,
+			&stat.LongCacheCreation1hTokens,
 			&stat.TotalTokens,
 			&stat.LastSeenMS,
 			&stat.AvgLatencyMS,
@@ -2469,6 +2531,7 @@ func (r *repository) TaskBucketsWithFilter(ctx context.Context, filter Analytics
 	coalesce(sum(`+compatCachedExpr+`), 0),
 	coalesce(sum(cache_read_tokens), 0),
 	coalesce(sum(cache_creation_tokens), 0),
+	coalesce(sum(`+cacheCreation1hExpr+`), 0),
 	coalesce(sum(total_tokens), 0),
 	avg(nullif(latency_ms, 0)),
 	max(latency_ms)
@@ -2501,6 +2564,7 @@ limit 500`, args...)
 			&bucket.CachedTokens,
 			&bucket.CacheReadTokens,
 			&bucket.CacheCreationTokens,
+			&bucket.CacheCreation1hTokens,
 			&bucket.TotalTokens,
 			&bucket.AvgLatencyMS,
 			&bucket.MaxLatencyMS,
@@ -2655,6 +2719,8 @@ func (r *repository) EventsPageWithFilter(ctx context.Context, filter AnalyticsF
 	`+compatCachedExpr+`,
 	cache_read_tokens,
 	cache_creation_tokens,
+	coalesce(cache_creation_5m_tokens, 0),
+	coalesce(cache_creation_1h_tokens, 0),
 	coalesce(cache_usage_source, ''),
 	reasoning_tokens,
 	total_tokens,
@@ -2718,6 +2784,8 @@ limit ?`, args...)
 			&item.CachedTokens,
 			&item.CacheReadTokens,
 			&item.CacheCreationTokens,
+			&item.CacheCreation5mTokens,
+			&item.CacheCreation1hTokens,
 			&item.CacheUsageSource,
 			&item.ReasoningTokens,
 			&item.TotalTokens,

@@ -1842,6 +1842,10 @@ export interface MonitoringAnalyticsEventRow {
   cached_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
+  // Anthropic's ephemeral cache TTL split. Absent when the upstream reported
+  // no split, in which case cache_creation_tokens prices as an all-5m write.
+  cache_creation_5m_tokens?: number;
+  cache_creation_1h_tokens?: number;
   cache_usage_source?: 'none' | 'upstream' | 'estimated' | 'mixed' | string;
   reasoning_tokens: number;
   total_tokens: number;

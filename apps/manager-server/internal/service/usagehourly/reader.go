@@ -265,11 +265,13 @@ func coreFromRows(rows []store.UsageHourlyAggregateRow) (store.Aggregate, []stor
 		agg.CachedTokens += row.CachedTokens
 		agg.CacheReadTokens += row.CacheReadTokens
 		agg.CacheCreationTokens += row.CacheCreationTokens
+		agg.CacheCreation1hTokens += row.CacheCreation1hTokens
 		agg.LongInputTokens += row.LongInputTokens
 		agg.LongOutputTokens += row.LongOutputTokens
 		agg.LongCachedTokens += row.LongCachedTokens
 		agg.LongCacheReadTokens += row.LongCacheReadTokens
 		agg.LongCacheCreationTokens += row.LongCacheCreationTokens
+		agg.LongCacheCreation1hTokens += row.LongCacheCreation1hTokens
 		agg.TotalTokens += row.TotalTokens
 		agg.LatencySamples += row.LatencySamples
 		agg.ZeroTokenCalls += row.ZeroTokenCalls
@@ -279,19 +281,20 @@ func coreFromRows(rows []store.UsageHourlyAggregateRow) (store.Aggregate, []stor
 			successCalls = row.Calls
 		}
 		addModelStat(modelStats, store.ModelStat{
-			Model:               row.Model,
-			BillingModel:        row.BillingModel,
-			ServiceTier:         row.ServiceTier,
-			Calls:               row.Calls,
-			SuccessCalls:        successCalls,
-			InputTokens:         row.InputTokens,
-			OutputTokens:        row.OutputTokens,
-			ReasoningTokens:     row.ReasoningTokens,
-			CachedTokens:        row.CachedTokens,
-			CacheReadTokens:     row.CacheReadTokens,
-			CacheCreationTokens: row.CacheCreationTokens,
-			LongContextTokens:   row.LongContextTokens,
-			TotalTokens:         row.TotalTokens,
+			Model:                 row.Model,
+			BillingModel:          row.BillingModel,
+			ServiceTier:           row.ServiceTier,
+			Calls:                 row.Calls,
+			SuccessCalls:          successCalls,
+			InputTokens:           row.InputTokens,
+			OutputTokens:          row.OutputTokens,
+			ReasoningTokens:       row.ReasoningTokens,
+			CachedTokens:          row.CachedTokens,
+			CacheReadTokens:       row.CacheReadTokens,
+			CacheCreationTokens:   row.CacheCreationTokens,
+			CacheCreation1hTokens: row.CacheCreation1hTokens,
+			LongContextTokens:     row.LongContextTokens,
+			TotalTokens:           row.TotalTokens,
 		})
 	}
 	if agg.LatencySamples > 0 {
@@ -323,11 +326,13 @@ func addModelStat(grouped map[modelStatKey]*store.ModelStat, stat store.ModelSta
 	entry.CachedTokens += stat.CachedTokens
 	entry.CacheReadTokens += stat.CacheReadTokens
 	entry.CacheCreationTokens += stat.CacheCreationTokens
+	entry.CacheCreation1hTokens += stat.CacheCreation1hTokens
 	entry.LongInputTokens += stat.LongInputTokens
 	entry.LongOutputTokens += stat.LongOutputTokens
 	entry.LongCachedTokens += stat.LongCachedTokens
 	entry.LongCacheReadTokens += stat.LongCacheReadTokens
 	entry.LongCacheCreationTokens += stat.LongCacheCreationTokens
+	entry.LongCacheCreation1hTokens += stat.LongCacheCreation1hTokens
 	entry.TotalTokens += stat.TotalTokens
 }
 
@@ -365,20 +370,21 @@ func modelStatsFromPricingRows(rows []store.UsagePricingHourlyRow) []store.Model
 			successCalls = row.Calls
 		}
 		addModelStat(grouped, store.ModelStat{
-			LongContextTokens:   row.LongContextTokens,
-			PricingBand:         row.PricingBand,
-			Model:               row.Model,
-			BillingModel:        row.BillingModel,
-			ServiceTier:         row.ServiceTier,
-			Calls:               row.Calls,
-			SuccessCalls:        successCalls,
-			InputTokens:         row.InputTokens,
-			OutputTokens:        row.OutputTokens,
-			ReasoningTokens:     row.ReasoningTokens,
-			CachedTokens:        row.CachedTokens,
-			CacheReadTokens:     row.CacheReadTokens,
-			CacheCreationTokens: row.CacheCreationTokens,
-			TotalTokens:         row.TotalTokens,
+			LongContextTokens:     row.LongContextTokens,
+			PricingBand:           row.PricingBand,
+			Model:                 row.Model,
+			BillingModel:          row.BillingModel,
+			ServiceTier:           row.ServiceTier,
+			Calls:                 row.Calls,
+			SuccessCalls:          successCalls,
+			InputTokens:           row.InputTokens,
+			OutputTokens:          row.OutputTokens,
+			ReasoningTokens:       row.ReasoningTokens,
+			CachedTokens:          row.CachedTokens,
+			CacheReadTokens:       row.CacheReadTokens,
+			CacheCreationTokens:   row.CacheCreationTokens,
+			CacheCreation1hTokens: row.CacheCreation1hTokens,
+			TotalTokens:           row.TotalTokens,
 		})
 	}
 	return sortedModelStats(grouped)
@@ -412,21 +418,22 @@ func analyticsTimelineFromPricingRows(rows []store.UsagePricingHourlyRow, granul
 	grouped := make(map[analyticsTimelineKey]*analyticsTimelineAccumulator)
 	for _, row := range rows {
 		point := store.TimelinePoint{
-			LongContextTokens:   row.LongContextTokens,
-			PricingBand:         row.PricingBand,
-			BucketMS:            usage.AnalyticsBucketMS(row.BucketMS, granularity, location),
-			Model:               row.Model,
-			BillingModel:        row.BillingModel,
-			ServiceTier:         row.ServiceTier,
-			Calls:               row.Calls,
-			Tokens:              row.TotalTokens,
-			InputTokens:         row.InputTokens,
-			OutputTokens:        row.OutputTokens,
-			ReasoningTokens:     row.ReasoningTokens,
-			CachedTokens:        row.CachedTokens,
-			CacheReadTokens:     row.CacheReadTokens,
-			CacheCreationTokens: row.CacheCreationTokens,
-			LatencySamples:      row.LatencySamples,
+			LongContextTokens:     row.LongContextTokens,
+			PricingBand:           row.PricingBand,
+			BucketMS:              usage.AnalyticsBucketMS(row.BucketMS, granularity, location),
+			Model:                 row.Model,
+			BillingModel:          row.BillingModel,
+			ServiceTier:           row.ServiceTier,
+			Calls:                 row.Calls,
+			Tokens:                row.TotalTokens,
+			InputTokens:           row.InputTokens,
+			OutputTokens:          row.OutputTokens,
+			ReasoningTokens:       row.ReasoningTokens,
+			CachedTokens:          row.CachedTokens,
+			CacheReadTokens:       row.CacheReadTokens,
+			CacheCreationTokens:   row.CacheCreationTokens,
+			CacheCreation1hTokens: row.CacheCreation1hTokens,
+			LatencySamples:        row.LatencySamples,
 		}
 		if row.Failed {
 			point.Failure = row.Calls
@@ -465,11 +472,13 @@ func addAnalyticsTimelinePoint(grouped map[analyticsTimelineKey]*analyticsTimeli
 	entry.point.CachedTokens += point.CachedTokens
 	entry.point.CacheReadTokens += point.CacheReadTokens
 	entry.point.CacheCreationTokens += point.CacheCreationTokens
+	entry.point.CacheCreation1hTokens += point.CacheCreation1hTokens
 	entry.point.LongInputTokens += point.LongInputTokens
 	entry.point.LongOutputTokens += point.LongOutputTokens
 	entry.point.LongCachedTokens += point.LongCachedTokens
 	entry.point.LongCacheReadTokens += point.LongCacheReadTokens
 	entry.point.LongCacheCreationTokens += point.LongCacheCreationTokens
+	entry.point.LongCacheCreation1hTokens += point.LongCacheCreation1hTokens
 	entry.point.LatencySamples += point.LatencySamples
 	entry.latencySumMS += latencySumMS
 }

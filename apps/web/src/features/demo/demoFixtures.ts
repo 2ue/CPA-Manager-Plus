@@ -4014,9 +4014,12 @@ const buildMonitoringAnalytics = (
       const profile = eventProfiles[index % eventProfiles.length];
       const failed = index % 9 === 0 || index % 22 === 0;
       const quotaFailure = failed && index % 2 === 0;
-      const uncachedInputTokens = 620 + ((index * 113) % 2600);
-      const outputTokens = 210 + ((index * 71) % 980);
-      const cachedTokens = index % 3 === 0 ? 180 + ((index * 17) % 520) : 0;
+      // Sized to real Claude Code traffic, where a warm prompt cache pushes
+      // cache reads into six figures. Small values hid whether the usage column
+      // rounds (151.0K) or reports the exact count (151,000).
+      const uncachedInputTokens = 6_200 + ((index * 1_130) % 26_000);
+      const outputTokens = 2_100 + ((index * 710) % 9_800);
+      const cachedTokens = index % 3 === 0 ? 118_000 + ((index * 1_700) % 52_000) : 0;
       const inputTokens = uncachedInputTokens + cachedTokens;
       const reasoningTokens = index % 4 === 0 ? 80 + ((index * 13) % 360) : 0;
       const totalTokens = inputTokens + outputTokens + reasoningTokens;

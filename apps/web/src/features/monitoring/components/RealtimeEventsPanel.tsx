@@ -20,6 +20,7 @@ import {
 import { MonitoringPanel } from '@/features/monitoring/components/MonitoringPanel';
 import { formatPercent } from '@/features/monitoring/components/accountOverviewPresentation';
 import { buildRealtimeSourceDisplay } from '@/features/monitoring/realtimeSourceDisplay';
+import { formatFullNumber } from '@/features/monitoring/model/monitoringCenterPageModel';
 import type { MonitoringEventRow } from '@/features/monitoring/hooks/useMonitoringData';
 import type { AccountDisplayMode } from '@/features/monitoring/accountOverviewState';
 import { useNotificationStore } from '@/stores';
@@ -85,7 +86,7 @@ const FAILURE_TOOLTIP_OFFSET = 8;
 const FAILURE_TOOLTIP_MAX_WIDTH = 420;
 const FAILURE_TOOLTIP_MAX_HEIGHT = 240;
 const FAILURE_TOOLTIP_CLOSE_DELAY_MS = 120;
-const USAGE_TOOLTIP_WIDTH = 184;
+const USAGE_TOOLTIP_WIDTH = 248;
 const USAGE_TOOLTIP_ESTIMATED_HEIGHT = 170;
 
 type FailureTooltipPlacement = 'above' | 'below';
@@ -206,10 +207,13 @@ const resolveUsageTooltipPosition = (anchor: HTMLElement): UsageTooltipPosition 
     FAILURE_TOOLTIP_VIEWPORT_MARGIN,
     rect.left - FAILURE_TOOLTIP_OFFSET - width
   );
+  // Cap only by what the viewport actually offers. Clamping to the estimated
+  // height truncated the content whenever the real list was taller than the
+  // estimate, which it is once every usage row is present.
   const baseStyle: CSSProperties = {
     left,
     width,
-    maxHeight: Math.min(USAGE_TOOLTIP_ESTIMATED_HEIGHT, availableHeight),
+    maxHeight: availableHeight,
   };
 
   return placement === 'left-below'
@@ -726,62 +730,114 @@ function RealtimeRequestDiagnosticStatus({
   );
 }
 
+type RealtimeCacheWriteTtl = 'unknown' | '5m' | '1h' | 'mixed';
+
 type RealtimeTokenUsageDetails = {
   total: string;
   input: string;
   output: string;
   cacheRead: string;
   cacheWrite: string;
+  cacheWriteTtl: RealtimeCacheWriteTtl;
+  cacheWriteTtlLabel: string;
   fields: Array<{ label: string; value: string }>;
   ariaLabel: string;
 };
 
-const buildRealtimeTokenUsageDetails = (row: MonitoringEventRow, t: TFunction) => {
+// Anthropic reports the two ephemeral pools separately and bills them
+// differently, so the badge has to distinguish "all 1h", "all 5m" and a mixed
+// request. Both tiers at zero means the upstream never reported the split, and
+// the write then renders bare rather than being guessed into a pool.
+const resolveCacheWriteTtl = (row: MonitoringEventRow): RealtimeCacheWriteTtl => {
+  const tokens5m = Math.max(row.cacheCreation5mTokens ?? 0, 0);
+  const tokens1h = Math.max(row.cacheCreation1hTokens ?? 0, 0);
+  if (tokens1h > 0 && tokens5m > 0) return 'mixed';
+  if (tokens1h > 0) return '1h';
+  if (tokens5m > 0) return '5m';
+  return 'unknown';
+};
+
+const CACHE_WRITE_TTL_BADGE_TEXT: Record<Exclude<RealtimeCacheWriteTtl, 'unknown'>, string> = {
+  '5m': '5M',
+  '1h': '1H',
+  mixed: '1H+5M',
+};
+
+const buildRealtimeTokenUsageDetails = (row: MonitoringEventRow, t: TFunction, locale: string) => {
+  const exact = (value: number) => formatFullNumber(value, locale);
+  const compact = (value: number) => formatCompactNumber(Math.max(value ?? 0, 0));
+  const cacheWriteTtl = resolveCacheWriteTtl(row);
   const fields = [
     {
       label: t('monitoring.realtime_usage_total_label'),
-      value: formatCompactNumber(row.totalTokens),
+      value: exact(row.totalTokens),
     },
     {
       label: t('monitoring.realtime_usage_input_label'),
-      value: formatCompactNumber(row.inputTokens),
+      value: exact(row.inputTokens),
     },
     {
       label: t('monitoring.realtime_usage_raw_input_label'),
-      value: formatCompactNumber(row.rawInputTokens ?? row.inputTokens),
+      value: exact(row.rawInputTokens ?? row.inputTokens),
     },
     {
       label: t('monitoring.realtime_usage_output_label'),
-      value: formatCompactNumber(row.outputTokens),
+      value: exact(row.outputTokens),
     },
     {
       label: t('monitoring.realtime_usage_reasoning_label'),
-      value: String(row.reasoningTokens),
+      value: exact(row.reasoningTokens),
     },
     {
       label: t('monitoring.realtime_usage_cached_label'),
-      value: formatCompactNumber(row.cachedTokens),
+      value: exact(row.cachedTokens),
     },
     {
       label: t('monitoring.realtime_usage_cache_read_label'),
-      value: formatCompactNumber(row.cacheReadTokens),
+      value: exact(row.cacheReadTokens),
     },
     {
       label: t('monitoring.realtime_usage_cache_creation_label'),
-      value: formatCompactNumber(row.cacheCreationTokens),
+      value: exact(row.cacheCreationTokens),
     },
+    // Listed only when the upstream actually reported the split, so an older
+    // row never reads as a measured "0 tokens in the 1h pool".
+    ...(cacheWriteTtl === 'unknown'
+      ? []
+      : [
+          {
+            label: t('monitoring.realtime_usage_cache_creation_5m_label'),
+            value: exact(Math.max(row.cacheCreation5mTokens ?? 0, 0)),
+          },
+          {
+            label: t('monitoring.realtime_usage_cache_creation_1h_label'),
+            value: exact(Math.max(row.cacheCreation1hTokens ?? 0, 0)),
+          },
+        ]),
     {
       label: t('monitoring.realtime_usage_cache_source_label'),
       value: row.cacheUsageSource || t('monitoring.realtime_usage_cache_source_none'),
     },
   ];
 
+  // The cell is narrow and every row carries five figures, so the visible
+  // values are abbreviated (12.3K) to keep the column from being a wall of
+  // digits. The tooltip and the accessible summary above stay exact, so the
+  // precise count is always one hover/focus away and never rounded in the
+  // record itself.
   return {
-    total: fields[0].value,
-    input: fields[1].value,
-    output: fields[3].value,
-    cacheRead: formatCompactNumber(row.cacheReadTokens),
-    cacheWrite: formatCompactNumber(row.cacheCreationTokens),
+    total: compact(row.totalTokens),
+    input: compact(row.inputTokens),
+    output: compact(row.outputTokens),
+    cacheRead: compact(row.cacheReadTokens),
+    cacheWrite: compact(row.cacheCreationTokens),
+    cacheWriteTtl,
+    cacheWriteTtlLabel:
+      cacheWriteTtl === 'unknown'
+        ? ''
+        : t('monitoring.realtime_usage_cache_ttl_label', {
+            ttl: CACHE_WRITE_TTL_BADGE_TEXT[cacheWriteTtl],
+          }),
     fields,
     // Keep the established accessible summary stable; the focus/hover tooltip
     // below carries the additional raw-input and cache-source diagnostics.
@@ -794,22 +850,16 @@ const buildRealtimeTokenUsageDetails = (row: MonitoringEventRow, t: TFunction) =
 type RealtimeTokenUsageProps = {
   details: RealtimeTokenUsageDetails;
   tooltipId: string;
+  infoLabel: string;
 };
 
-function RealtimeTokenUsage({ details, tooltipId }: RealtimeTokenUsageProps) {
-  const triggerRef = useRef<HTMLDivElement | null>(null);
+function RealtimeTokenUsage({ details, tooltipId, infoLabel }: RealtimeTokenUsageProps) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const closeTimerRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<UsageTooltipPosition | null>(null);
   const isBrowser = typeof document !== 'undefined';
-
-  const clearCloseTimer = useCallback(() => {
-    if (closeTimerRef.current === null || typeof window === 'undefined') return;
-    window.clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = null;
-  }, []);
 
   const updateTooltipPosition = useCallback(() => {
     if (!triggerRef.current) return;
@@ -830,53 +880,40 @@ function RealtimeTokenUsage({ details, tooltipId }: RealtimeTokenUsageProps) {
     });
   }, [updateTooltipPosition]);
 
-  const showTooltip = useCallback(() => {
-    clearCloseTimer();
-    updateTooltipPosition();
-    setOpen(true);
-  }, [clearCloseTimer, updateTooltipPosition]);
+  const toggleTooltip = useCallback(() => {
+    setOpen((previous) => {
+      if (previous) return false;
+      updateTooltipPosition();
+      return true;
+    });
+  }, [updateTooltipPosition]);
 
-  const requestHideTooltip = useCallback(() => {
-    clearCloseTimer();
-    if (typeof window === 'undefined') {
-      setOpen(false);
+  const handleBlur = useCallback((event: FocusEvent<HTMLElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (
+      isNodeInside(triggerRef.current, nextTarget) ||
+      isNodeInside(tooltipRef.current, nextTarget)
+    ) {
       return;
     }
-    closeTimerRef.current = window.setTimeout(() => {
-      closeTimerRef.current = null;
-      setOpen(false);
-    }, FAILURE_TOOLTIP_CLOSE_DELAY_MS);
-  }, [clearCloseTimer]);
+    setOpen(false);
+  }, []);
 
-  const handleBlur = useCallback(
-    (event: FocusEvent<HTMLElement>) => {
-      const nextTarget = event.relatedTarget;
-      if (
-        isNodeInside(triggerRef.current, nextTarget) ||
-        isNodeInside(tooltipRef.current, nextTarget)
-      ) {
-        return;
-      }
-      requestHideTooltip();
-    },
-    [requestHideTooltip]
-  );
-
-  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Escape') return;
     event.preventDefault();
     setOpen(false);
+    triggerRef.current?.focus();
   }, []);
 
   useEffect(() => {
     return () => {
-      clearCloseTimer();
       if (rafRef.current !== null && typeof window !== 'undefined') {
         window.cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [clearCloseTimer]);
+  }, []);
 
   useEffect(() => {
     if (!open || typeof window === 'undefined') return undefined;
@@ -885,9 +922,21 @@ function RealtimeTokenUsage({ details, tooltipId }: RealtimeTokenUsageProps) {
     window.addEventListener('resize', scheduleTooltipPositionUpdate);
     window.addEventListener('scroll', scheduleTooltipPositionUpdate, true);
 
+    // Click-to-open tooltips must dismiss on an outside press; hover-based ones
+    // closed on mouseleave, which no longer fires now that hover is inert.
+    const handlePointerDown = (event: globalThis.MouseEvent) => {
+      const target = event.target as Node | null;
+      if (isNodeInside(triggerRef.current, target) || isNodeInside(tooltipRef.current, target)) {
+        return;
+      }
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+
     return () => {
       window.removeEventListener('resize', scheduleTooltipPositionUpdate);
       window.removeEventListener('scroll', scheduleTooltipPositionUpdate, true);
+      document.removeEventListener('mousedown', handlePointerDown);
     };
   }, [open, scheduleTooltipPositionUpdate]);
 
@@ -907,8 +956,7 @@ function RealtimeTokenUsage({ details, tooltipId }: RealtimeTokenUsageProps) {
         .filter(Boolean)
         .join(' ')}
       style={isBrowser ? tooltipPosition?.style : undefined}
-      onMouseEnter={clearCloseTimer}
-      onMouseLeave={requestHideTooltip}
+      onKeyDown={handleKeyDown}
     >
       {details.fields.map((field) => (
         <span key={field.label} className={styles.realtimeUsageTooltipLine}>
@@ -920,21 +968,22 @@ function RealtimeTokenUsage({ details, tooltipId }: RealtimeTokenUsageProps) {
   );
 
   return (
-    <div
-      ref={triggerRef}
-      className={styles.realtimeUsageCell}
-      tabIndex={0}
-      aria-describedby={tooltipId}
-      aria-label={details.ariaLabel}
-      onMouseEnter={showTooltip}
-      onMouseLeave={requestHideTooltip}
-      onFocus={showTooltip}
-      onBlur={handleBlur}
-      onKeyDown={handleKeyDown}
-    >
+    <div className={styles.realtimeUsageCell} aria-label={details.ariaLabel}>
       <span className={styles.realtimeUsageHeader}>
         <span className={styles.realtimeUsageTotal}>{details.total}</span>
-        <IconInfo size={13} />
+        <button
+          ref={triggerRef}
+          type="button"
+          className={styles.realtimeUsageInfoButton}
+          aria-label={infoLabel}
+          aria-expanded={open}
+          aria-controls={tooltipId}
+          onClick={toggleTooltip}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+        >
+          <IconInfo size={13} />
+        </button>
       </span>
       <span className={styles.realtimeUsageFlow}>
         <span className={styles.realtimeUsageMetric}>
@@ -962,6 +1011,20 @@ function RealtimeTokenUsage({ details, tooltipId }: RealtimeTokenUsageProps) {
             ▣
           </span>
           {details.cacheWrite}
+          {details.cacheWriteTtl === 'unknown' ? null : (
+            <span
+              className={[
+                styles.realtimeUsageCacheTtlBadge,
+                details.cacheWriteTtl === '5m' ? styles.realtimeUsageCacheTtlBadge5m : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              title={details.cacheWriteTtlLabel}
+              aria-label={details.cacheWriteTtlLabel}
+            >
+              {CACHE_WRITE_TTL_BADGE_TEXT[details.cacheWriteTtl]}
+            </span>
+          )}
         </span>
       </span>
       {!isBrowser ? tooltip : null}
@@ -1177,7 +1240,7 @@ export function RealtimeEventsPanel({
               const hasTtftMs = row.ttftMs !== null && row.ttftMs !== undefined;
               const ttftToneClass = getRealtimeDurationToneClass(row.ttftMs);
               const latencyToneClass = getRealtimeDurationToneClass(row.latencyMs);
-              const tokenUsage = buildRealtimeTokenUsageDetails(row, t);
+              const tokenUsage = buildRealtimeTokenUsageDetails(row, t, locale);
               return (
                 <tr key={row.id} className={row.failed ? styles.logRowFailed : undefined}>
                   <td>
@@ -1337,6 +1400,9 @@ export function RealtimeEventsPanel({
                     <RealtimeTokenUsage
                       details={tokenUsage}
                       tooltipId={`${tooltipIdPrefix}-token-usage-tooltip-${row.id}`}
+                      infoLabel={t('monitoring.realtime_usage_details_label', {
+                        defaultValue: '查看用量明细',
+                      })}
                     />
                   </td>
                   <td>{hasPrices ? formatUsd(row.totalCost, 3) : '--'}</td>
