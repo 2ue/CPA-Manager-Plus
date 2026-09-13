@@ -1,0 +1,23 @@
+<b>9 月 13 日 · v7.2.151-max.4</b>
+
+<b>更新内容</b>
+
+• 合并上游 v1.12.12，保留二开特性。
+• 凭证列表新增卡片视图，额度窗口在移动端与笔记本屏幕自适应排布。
+• 新增 Manager 更新检查与通知页面。
+• 支持行内编辑优先级与备注，失焦自动保存。
+• 重置卡结果改为 Fail-Closed，仅在明确成功时同步网关冷却。
+• xAI 未确认额度不再展示，付费套餐判定改为严格门槛。
+
+<b>发布工具链</b>
+
+• 更新通道契约新增 <code>max</code> 阶段，<code>-max.N</code> 标签不再因 Invalid release identity 失败。
+• <code>max</code> 为封闭发布线：不进入 stable / rc / beta，上游 stable 也不会推送给 max 安装。
+• 仓库与镜像标识改由环境解析，未设置时与上游行为一致。
+
+<b>注意事项</b>
+
+• 这是一个 fork 预发布版本，标签为 <code>v7.2.151-max.4</code>，无需手动迁移。
+• <code>management.html</code> 现由构建产出，自定义部署可用 <code>PANEL_PATH</code> 指定。
+
+<a href="https://github.com/2ue/CPA-Manager-Plus/releases/tag/v7.2.151-max.4">GitHub Release</a>
