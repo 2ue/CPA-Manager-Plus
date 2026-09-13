@@ -8,6 +8,8 @@ import {
   compareVersions,
   parseVersion,
   repository,
+  repositorySlug,
+  dockerImage,
 } from './update-contract.mjs';
 
 export function verifyCandidate(release, info, sha) {
@@ -100,10 +102,14 @@ export async function publishUpdateIndex({
   fetchImpl = fetch,
   exec = execFileSync,
 } = {}) {
-  if (env.GITHUB_REPOSITORY !== 'seakee/CPA-Manager-Plus') throw new Error('Unexpected repository');
+  // The index is published into the repository that owns it. Pinning this to a
+  // literal would make a fork silently write its builds into the upstream
+  // index, so the guard is that the running repository matches the identity the
+  // contract was resolved with, not that it is upstream.
+  if (env.GITHUB_REPOSITORY !== repositorySlug) throw new Error('Unexpected repository');
   const token = env.GITHUB_TOKEN;
   if (!token) throw new Error('Missing GitHub token');
-  const apiBase = 'https://api.github.com/repos/seakee/CPA-Manager-Plus';
+  const apiBase = `https://api.github.com/repos/${repositorySlug}`;
   const api = async (path, method = 'GET', body, allow404 = false) => {
     const res = await fetchImpl(apiBase + path, {
       method,
@@ -188,7 +194,7 @@ export async function publishUpdateIndex({
   }
   const { channels, aliases } = resolveAliases(infos, withdrawn);
   if (!infos.length && !withdraw) throw new Error('At least one verified release is required');
-  const images = ['ghcr.io/seakee/cpa-manager-plus', 'seakee/cpa-manager-plus'];
+  const images = [`ghcr.io/${dockerImage}`, dockerImage];
   // Validate all precise references first, before any alias mutation.
   const targets = new Set([
     ...Object.values(aliases),

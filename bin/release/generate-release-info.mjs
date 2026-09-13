@@ -1,7 +1,13 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { repository, parseVersion, nativeAssets, validateInfo } from './update-contract.mjs';
+import {
+  repository,
+  dockerImage,
+  parseVersion,
+  nativeAssets,
+  validateInfo,
+} from './update-contract.mjs';
 
 export function generateReleaseInfo(tag, sha, chineseNotes) {
   // One reviewed block in the existing release PR; no second notes source.
@@ -24,7 +30,7 @@ export function generateReleaseInfo(tag, sha, chineseNotes) {
       },
       update: metadata.update,
       distribution: {
-        docker: { image: 'seakee/cpa-manager-plus', version_tag: tag },
+        docker: { image: dockerImage, version_tag: tag },
         native: { assets: nativeAssets(tag) },
       },
       compatibility: metadata.compatibility,

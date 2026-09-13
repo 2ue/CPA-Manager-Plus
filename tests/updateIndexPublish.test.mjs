@@ -211,7 +211,12 @@ describe('update index publication', () => {
   it('can bootstrap preview channels before the first metadata-bearing stable release', async () => {
     const s = scenario({ tags: ['v2.0.0-beta.1'] });
     const index = await s.run();
-    expect(index.channels).toEqual({ stable: null, rc: null, beta: { version: 'v2.0.0-beta.1' } });
+    expect(index.channels).toEqual({
+      stable: null,
+      rc: null,
+      beta: { version: 'v2.0.0-beta.1' },
+      max: null,
+    });
     expect(s.calls.some((c) => c.method === 'PATCH' && c.url?.includes('/releases/'))).toBe(false);
     const tree = s.calls.find((c) => c.url?.endsWith('/git/trees'));
     expect(tree.body.tree.some((f) => f.path === 'stable-version.txt')).toBe(false);
@@ -226,7 +231,7 @@ describe('update index publication', () => {
   it('allows withdrawing the only stable release and generates all-null channels without stable-version.txt', async () => {
     const s = scenario({ existing: true, tags: ['v2.0.0'], withdraw: 'v2.0.0' });
     const index = await s.run();
-    expect(index.channels).toEqual({ stable: null, rc: null, beta: null });
+    expect(index.channels).toEqual({ stable: null, rc: null, beta: null, max: null });
     const tree = s.calls.find((c) => c.url?.endsWith('/git/trees'));
     expect(tree.body.tree.some((f) => f.path === 'stable-version.txt')).toBe(false);
     const withdrawnEntry = tree.body.tree.find((f) => f.path === 'withdrawn.json');

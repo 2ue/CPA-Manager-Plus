@@ -3,11 +3,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateReleaseInfo } from './generate-release-info.mjs';
+import { repository as repositoryUrl } from './update-contract.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const repositoryUrl = process.env.GITHUB_REPOSITORY
-  ? `https://github.com/${process.env.GITHUB_REPOSITORY}`
-  : 'https://github.com/seakee/CPA-Manager-Plus';
 const maximumTelegramCharacters = 3500;
 const prereleaseIdentifier = String.raw`(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)`;
 const releaseTagPattern = new RegExp(

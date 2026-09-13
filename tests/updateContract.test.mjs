@@ -46,6 +46,7 @@ describe('update contract', () => {
       stable: { version: 'v2.0.0' },
       rc: { version: 'v2.0.0' },
       beta: { version: 'v2.1.0-beta.1' },
+      max: null,
     });
     expect(resolveAliases(infos, []).aliases).toEqual({
       latest: 'v2.0.0',
@@ -54,6 +55,32 @@ describe('update contract', () => {
       1.13: 'v1.13.10',
     });
     expect(resolveChannels(infos, ['v2.1.0-beta.1']).beta.version).toBe('v2.0.0');
+  });
+  it('isolates the fork max train from the upstream channels', () => {
+    // A -max.N tag has to survive identity validation at all, which is what
+    // fails when `max` is not a recognised stage.
+    expect(parseVersion('v7.2.151-max.4').stage).toBe('max');
+    const maxInfo = makeInfo('v7.2.151-max.4');
+    expect(maxInfo.release.stage).toBe('max');
+
+    // Isolation runs both ways: a fork build must not leak into stable/rc/beta,
+    // and a newer upstream stable must not be offered to a max install, because
+    // the fork carries features upstream does not have.
+    const channels = resolveChannels([maxInfo, makeInfo('v8.0.0')]);
+    expect(channels).toEqual({
+      stable: { version: 'v8.0.0' },
+      rc: { version: 'v8.0.0' },
+      beta: { version: 'v8.0.0' },
+      max: { version: 'v7.2.151-max.4' },
+    });
+
+    // No alias resolves to a fork build. `preview` is v8.0.0 because a stable
+    // release also occupies the beta channel, which is upstream behaviour.
+    expect(resolveAliases([maxInfo, makeInfo('v8.0.0')], []).aliases).toEqual({
+      latest: 'v8.0.0',
+      preview: 'v8.0.0',
+      '8.0': 'v8.0.0',
+    });
   });
   it('fails closed on invalid identity, distribution and incomplete release', () => {
     const info = makeInfo('v2.0.0');
