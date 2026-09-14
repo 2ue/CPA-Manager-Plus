@@ -459,7 +459,7 @@ describe('prepareAuthFilesForUpload', () => {
     expect(result.failures).toEqual([
       {
         name: 'empty-sub2api-export.json',
-        error: expect.stringContaining('No sub2api OpenAI OAuth account'),
+        error: expect.stringContaining('No sub2api OpenAI or Anthropic OAuth account'),
       },
     ]);
   });

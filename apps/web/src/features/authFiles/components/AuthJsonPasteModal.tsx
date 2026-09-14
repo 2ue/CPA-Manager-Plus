@@ -4,7 +4,10 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import type { AuthJsonInputType } from '@/features/authFiles/sessionAuthConverter';
+import {
+  DEFAULT_CODEX_AUTH_FILE_NAME,
+  type AuthJsonInputType,
+} from '@/features/authFiles/sessionAuthConverter';
 import styles from './AuthJsonPasteModal.module.scss';
 
 type AuthJsonPasteModalProps = {
@@ -15,7 +18,7 @@ type AuthJsonPasteModalProps = {
   onSave: (type: AuthJsonInputType, fileName: string, jsonText: string) => Promise<void>;
 };
 
-const DEFAULT_FILE_NAME = 'codex-account.json';
+const DEFAULT_FILE_NAME = DEFAULT_CODEX_AUTH_FILE_NAME;
 const INVALID_BASE_FILE_NAME_PATTERN = /[\\/:*?"<>|]/;
 const FORBIDDEN_INVISIBLE_CODE_POINTS = new Set([
   0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2060, 0x2066,

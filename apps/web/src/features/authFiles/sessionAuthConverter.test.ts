@@ -1075,14 +1075,6 @@ describe('convertAuthJsonInput', () => {
             concurrency: 3,
             priority: 50,
           },
-          {
-            name: 'Claude Account',
-            platform: 'anthropic',
-            type: 'oauth',
-            credentials: {
-              access_token: 'claude-token',
-            },
-          },
         ],
       }),
       'sub2api',
@@ -1106,6 +1098,125 @@ describe('convertAuthJsonInput', () => {
       last_refresh: '2026-06-01T12:00:00.000Z',
       expired: '2026-07-01T00:00:00.000Z',
     });
+  });
+
+  it('converts a sub2api Anthropic OAuth export to CPA Claude auth JSON', () => {
+    const result = convertAuthJsonInput(
+      JSON.stringify({
+        exported_at: '2026-06-01T12:00:00.000Z',
+        proxies: [],
+        accounts: [
+          {
+            name: 'Sub2API Claude',
+            platform: 'anthropic',
+            type: 'oauth',
+            credentials: {
+              access_token: 'claude-access-token',
+              refresh_token: 'claude-refresh-token',
+              token_type: 'Bearer',
+              scope: 'user:inference',
+              // sub2api serialises expiry as an absolute Unix-seconds string.
+              expires_in: '3600',
+              expires_at: '1780012800',
+            },
+            extra: {
+              email_address: 'claude-user@example.com',
+              org_uuid: 'org-uuid-1234',
+              account_uuid: 'account-uuid-5678',
+              organization_name: 'Example Org',
+            },
+          },
+        ],
+      }),
+      'sub2api',
+      new Date('2026-06-02T00:00:00.000Z')
+    );
+
+    expect(result).toEqual({
+      type: 'claude',
+      email: 'claude-user@example.com',
+      name: 'Sub2API Claude',
+      organization_uuid: 'org-uuid-1234',
+      organization_name: 'Example Org',
+      account_uuid: 'account-uuid-5678',
+      access_token: 'claude-access-token',
+      refresh_token: 'claude-refresh-token',
+      last_refresh: '2026-06-01T12:00:00.000Z',
+      expired: new Date(1780012800 * 1000).toISOString(),
+    });
+    // scope/token_type/expires_in have no CPA Claude counterpart and are dropped.
+    expect(result).not.toHaveProperty('scope');
+    expect(result).not.toHaveProperty('token_type');
+  });
+
+  it('converts both platforms from one mixed sub2api export', () => {
+    const input = JSON.stringify({
+      exported_at: '2026-06-01T12:00:00.000Z',
+      proxies: [],
+      accounts: [
+        {
+          name: 'Mixed OpenAI',
+          platform: 'openai',
+          type: 'oauth',
+          credentials: { access_token: 'openai-token', email: 'openai@example.com' },
+        },
+        {
+          name: 'Mixed Claude',
+          platform: 'anthropic',
+          type: 'oauth',
+          credentials: { access_token: 'claude-token' },
+          extra: {
+            email_address: 'claude@example.com',
+            org_uuid: '2f1c4d6e-8a90-4b21-9c3d-5e7f8a9b0c1d',
+          },
+        },
+        // Unsupported platforms are still skipped rather than failing the import.
+        {
+          name: 'Gemini',
+          platform: 'gemini',
+          type: 'oauth',
+          credentials: { access_token: 'gemini-token' },
+        },
+      ],
+    });
+
+    const result = buildAuthJsonFilePayloads(
+      'sub2api',
+      'codex-account.json',
+      input,
+      new Date('2026-06-02T00:00:00.000Z')
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result.map((item) => item.authJson.type)).toEqual(['codex', 'claude']);
+    // The id segment is the first 8 characters of the organization UUID.
+    expect(result[1].fileName).toBe('claude-2f1c4d6e-claude@example.com.json');
+    expect(result[1].authJson).toMatchObject({
+      type: 'claude',
+      email: 'claude@example.com',
+      organization_uuid: '2f1c4d6e-8a90-4b21-9c3d-5e7f8a9b0c1d',
+      access_token: 'claude-token',
+    });
+  });
+
+  it('rejects a sub2api Anthropic OAuth account missing credentials.access_token', () => {
+    expect(() =>
+      convertAuthJsonInput(
+        JSON.stringify({
+          exported_at: '2026-06-01T12:00:00.000Z',
+          proxies: [],
+          accounts: [
+            {
+              name: 'Broken Claude',
+              platform: 'anthropic',
+              type: 'oauth',
+              credentials: { refresh_token: 'only-refresh' },
+            },
+          ],
+        }),
+        'sub2api'
+      )
+    ).toThrow('sub2api Anthropic OAuth account "Broken Claude" is missing credentials.access_token');
   });
 
   it('converts multiple sub2api OpenAI OAuth accounts to separate CPA auth files', () => {
@@ -1310,7 +1421,7 @@ describe('convertAuthJsonInput', () => {
     expect(result).not.toHaveProperty('id_token');
   });
 
-  it('rejects sub2api exports without supported OpenAI OAuth accounts', () => {
+  it('rejects sub2api exports without supported OAuth accounts', () => {
     expect(() =>
       convertAuthJsonInput(
         JSON.stringify({
@@ -1318,18 +1429,27 @@ describe('convertAuthJsonInput', () => {
           proxies: [],
           accounts: [
             {
-              name: 'Claude Account',
-              platform: 'anthropic',
+              name: 'Gemini Account',
+              platform: 'gemini',
               type: 'oauth',
               credentials: {
-                access_token: 'claude-token',
+                access_token: 'gemini-token',
+              },
+            },
+            // An API-key account on a supported platform is not an OAuth login.
+            {
+              name: 'Anthropic API Key',
+              platform: 'anthropic',
+              type: 'api_key',
+              credentials: {
+                api_key: 'sk-ant-example',
               },
             },
           ],
         }),
         'sub2api'
       )
-    ).toThrow('No sub2api OpenAI OAuth account with credentials.access_token was found');
+    ).toThrow('No sub2api OpenAI or Anthropic OAuth account with credentials.access_token was found');
   });
 
   it('rejects sub2api OpenAI OAuth accounts missing credentials.access_token', () => {
