@@ -741,9 +741,22 @@ const getSub2ApiAccountLabel = (account: JsonRecord, index: number) => {
   return name ? `"${name}"` : `#${index + 1}`;
 };
 
-const isSub2ApiOpenAIOAuthAccount = (account: JsonRecord) =>
-  firstNonEmptyString(account.platform)?.toLowerCase() === 'openai' &&
-  firstNonEmptyString(account.type)?.toLowerCase() === 'oauth';
+// sub2api names the Claude platform "anthropic", not "claude"; the CPA auth file
+// type is the reverse. Keep the two vocabularies separated by this one map so the
+// mismatch cannot leak into the converters.
+const SUB2API_PLATFORM_TO_CPA_TYPE: Record<string, 'codex' | 'claude'> = {
+  openai: 'codex',
+  anthropic: 'claude',
+};
+
+const getSub2ApiOAuthTargetType = (account: JsonRecord) => {
+  if (firstNonEmptyString(account.type)?.toLowerCase() !== 'oauth') return undefined;
+  const platform = firstNonEmptyString(account.platform)?.toLowerCase();
+  return platform ? SUB2API_PLATFORM_TO_CPA_TYPE[platform] : undefined;
+};
+
+const isSub2ApiSupportedOAuthAccount = (account: JsonRecord) =>
+  getSub2ApiOAuthTargetType(account) !== undefined;
 
 const collectSub2ApiAccounts = (
   value: unknown
@@ -921,21 +934,113 @@ const convertSub2ApiAccountToCpaAuthJson = (
   }) as JsonRecord;
 };
 
+const convertSub2ApiAccountToCpaClaudeAuthJson = (
+  account: JsonRecord,
+  exportedAt: unknown,
+  now: Date,
+  index: number
+): JsonRecord => {
+  const credentials = isRecord(account.credentials) ? account.credentials : undefined;
+  if (!credentials) {
+    throw new AuthJsonConversionError(
+      `sub2api Anthropic OAuth account ${getSub2ApiAccountLabel(account, index)} is missing credentials`
+    );
+  }
+
+  const extra = isRecord(account.extra) ? account.extra : undefined;
+  const accessToken = firstNonEmptyString(credentials.access_token, credentials.accessToken);
+  if (!accessToken) {
+    throw new AuthJsonConversionError(
+      `sub2api Anthropic OAuth account ${getSub2ApiAccountLabel(account, index)} is missing credentials.access_token`
+    );
+  }
+
+  // Identity canonically lives in `extra`, but real exports routinely duplicate it
+  // inside `credentials`, so both are read for every field.
+  const email = readSub2ApiCredentialString(
+    credentials,
+    extra,
+    'email_address',
+    'emailAddress',
+    'email'
+  );
+  const organizationUuid = readSub2ApiCredentialString(
+    credentials,
+    extra,
+    'org_uuid',
+    'orgUuid',
+    'organization_uuid',
+    'organizationUuid'
+  );
+  const accountUuid = readSub2ApiCredentialString(
+    credentials,
+    extra,
+    'account_uuid',
+    'accountUuid'
+  );
+  const organizationName = readSub2ApiCredentialString(
+    credentials,
+    extra,
+    'organization_name',
+    'organizationName',
+    'org_name',
+    'orgName'
+  );
+  // sub2api stores expires_at as an absolute Unix-seconds decimal string;
+  // normalizeTimestamp turns that into the RFC3339 value CPA expects.
+  const expiresAt = firstNonEmpty(
+    normalizeTimestamp(credentials.expires_at),
+    normalizeTimestamp(credentials.expiresAt),
+    normalizeTimestamp(account.expires_at),
+    normalizeTimestamp(account.expiresAt)
+  );
+  const lastRefresh = firstNonEmpty(
+    normalizeTimestamp(exportedAt),
+    normalizeTimestamp(account.exported_at),
+    normalizeTimestamp(now)
+  );
+  const status = firstNonEmptyString(account.status);
+  const disabled =
+    typeof account.disabled === 'boolean'
+      ? account.disabled || undefined
+      : status && status.toLowerCase() !== 'active'
+        ? true
+        : undefined;
+
+  return stripUnavailable({
+    type: 'claude',
+    email,
+    name: firstNonEmpty(account.name, email, accountUuid, 'Claude Account'),
+    organization_uuid: organizationUuid,
+    organization_name: organizationName,
+    account_uuid: accountUuid,
+    access_token: accessToken,
+    refresh_token: firstNonEmptyString(credentials.refresh_token, credentials.refreshToken),
+    last_refresh: lastRefresh,
+    expired: expiresAt,
+    disabled,
+  }) as JsonRecord;
+};
+
 const convertSub2ApiToCpaAuthJson = (value: unknown, now: Date): AuthJsonConversionResult => {
   const exportRecord = findSub2ApiExportRecord(value);
   if (exportRecord && !Array.isArray(exportRecord.accounts)) {
     throw new AuthJsonConversionError('sub2api export accounts must be an array');
   }
   const { accounts, exportedAt } = collectSub2ApiAccounts(value);
-  const openAiOauthAccounts = accounts.filter(isSub2ApiOpenAIOAuthAccount);
-  if (openAiOauthAccounts.length === 0) {
+  const oauthAccounts = accounts.filter(isSub2ApiSupportedOAuthAccount);
+  if (oauthAccounts.length === 0) {
     throw new AuthJsonConversionError(
-      'No sub2api OpenAI OAuth account with credentials.access_token was found'
+      'No sub2api OpenAI or Anthropic OAuth account with credentials.access_token was found'
     );
   }
 
-  const converted = openAiOauthAccounts.map((account, index) =>
-    convertSub2ApiAccountToCpaAuthJson(account, exportedAt, now, index)
+  // A single export can mix platforms; every supported account is converted so
+  // that nothing is silently dropped.
+  const converted = oauthAccounts.map((account, index) =>
+    getSub2ApiOAuthTargetType(account) === 'claude'
+      ? convertSub2ApiAccountToCpaClaudeAuthJson(account, exportedAt, now, index)
+      : convertSub2ApiAccountToCpaAuthJson(account, exportedAt, now, index)
   );
 
   return converted.length === 1 ? converted[0] : converted;
@@ -1032,17 +1137,47 @@ const getDefaultAuthFileIdSegment = (authJson: JsonRecord) => {
   const rawId = firstNonEmpty(
     authJson.account_id,
     authJson.chatgpt_account_id,
-    authJson.organization_id
+    authJson.organization_id,
+    // Claude auth files carry UUID identity instead of the Codex-style ids, and
+    // without these two a Claude account would fall back to an opaque fingerprint.
+    authJson.organization_uuid,
+    authJson.account_uuid
   );
   return buildSafeFileNameSegment(rawId, { maxLength: 8 }) || buildAuthFileFingerprint(authJson);
 };
 
-export const getDefaultSessionAuthFileName = (authJson: JsonRecord) => {
+// For Claude the email is the meaningful identity and is unique in the ordinary
+// case, so the name stays `claude-<email>.json`. The organization segment is
+// only added when the same email holds several organizations, which Claude does
+// allow and which would otherwise collapse two distinct logins onto one name.
+const isClaudeAuthJson = (authJson: JsonRecord) =>
+  firstNonEmptyString(authJson.type)?.toLowerCase() === 'claude';
+
+const needsOrganizationSegment = (authJson: JsonRecord, siblings: readonly JsonRecord[]) => {
+  const email = firstNonEmptyString(authJson.email)?.toLowerCase();
+  if (!email) return true;
+  const organization = firstNonEmptyString(authJson.organization_uuid, authJson.account_uuid);
+  return siblings.some(
+    (other) =>
+      other !== authJson &&
+      isClaudeAuthJson(other) &&
+      firstNonEmptyString(other.email)?.toLowerCase() === email &&
+      firstNonEmptyString(other.organization_uuid, other.account_uuid) !== organization
+  );
+};
+
+export const getDefaultSessionAuthFileName = (
+  authJson: JsonRecord,
+  siblings: readonly JsonRecord[] = []
+) => {
   const provider = buildSafeFileNameSegment(firstNonEmpty(authJson.type, authJson.provider), {
     fallback: 'codex',
     maxLength: 24,
   });
-  const id = getDefaultAuthFileIdSegment(authJson);
+  const id =
+    isClaudeAuthJson(authJson) && !needsOrganizationSegment(authJson, siblings)
+      ? ''
+      : getDefaultAuthFileIdSegment(authJson);
   const identity = buildSafeFileNameSegment(
     firstNonEmpty(authJson.email, authJson.name, authJson.account_id, 'account'),
     {
@@ -1061,6 +1196,15 @@ export const getDefaultSessionAuthFileName = (authJson: JsonRecord) => {
 
   return `${baseName}.json`;
 };
+
+// Placeholder names the paste modal offers. Shared with the modal so that the
+// "derive the name automatically" contract has exactly one definition.
+export const DEFAULT_CODEX_AUTH_FILE_NAME = 'codex-account.json';
+export const DEFAULT_CLAUDE_AUTH_FILE_NAME = 'claude-account.json';
+const DERIVABLE_DEFAULT_FILE_NAMES = new Set([
+  DEFAULT_CODEX_AUTH_FILE_NAME,
+  DEFAULT_CLAUDE_AUTH_FILE_NAME,
+]);
 
 const appendJsonFileNameSuffix = (fileName: string, suffix: number) => {
   const baseName = fileName.toLowerCase().endsWith('.json')
@@ -1096,8 +1240,12 @@ export const buildAuthJsonFilePayloads = (
 
   if (authJsonRecords.length === 1) {
     const authJson = authJsonRecords[0];
+    // The untouched placeholder means "name it for me". A sub2api paste can now
+    // yield a Claude account, so the Claude placeholder is honoured the same way
+    // rather than being taken as a deliberate user-chosen name.
     const fileName =
-      (type === 'session' || type === 'sub2api') && requestedFileName === 'codex-account.json'
+      (type === 'session' || type === 'sub2api') &&
+      DERIVABLE_DEFAULT_FILE_NAMES.has(requestedFileName)
         ? getDefaultSessionAuthFileName(authJson)
         : requestedFileName;
     return [{ fileName, authJson }];
@@ -1105,7 +1253,7 @@ export const buildAuthJsonFilePayloads = (
 
   return ensureUniqueAuthJsonFilePayloadNames(
     authJsonRecords.map((authJson) => ({
-      fileName: getDefaultSessionAuthFileName(authJson),
+      fileName: getDefaultSessionAuthFileName(authJson, authJsonRecords),
       authJson,
     }))
   );
