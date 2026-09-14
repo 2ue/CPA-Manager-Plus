@@ -1146,12 +1146,38 @@ const getDefaultAuthFileIdSegment = (authJson: JsonRecord) => {
   return buildSafeFileNameSegment(rawId, { maxLength: 8 }) || buildAuthFileFingerprint(authJson);
 };
 
-export const getDefaultSessionAuthFileName = (authJson: JsonRecord) => {
+// For Claude the email is the meaningful identity and is unique in the ordinary
+// case, so the name stays `claude-<email>.json`. The organization segment is
+// only added when the same email holds several organizations, which Claude does
+// allow and which would otherwise collapse two distinct logins onto one name.
+const isClaudeAuthJson = (authJson: JsonRecord) =>
+  firstNonEmptyString(authJson.type)?.toLowerCase() === 'claude';
+
+const needsOrganizationSegment = (authJson: JsonRecord, siblings: readonly JsonRecord[]) => {
+  const email = firstNonEmptyString(authJson.email)?.toLowerCase();
+  if (!email) return true;
+  const organization = firstNonEmptyString(authJson.organization_uuid, authJson.account_uuid);
+  return siblings.some(
+    (other) =>
+      other !== authJson &&
+      isClaudeAuthJson(other) &&
+      firstNonEmptyString(other.email)?.toLowerCase() === email &&
+      firstNonEmptyString(other.organization_uuid, other.account_uuid) !== organization
+  );
+};
+
+export const getDefaultSessionAuthFileName = (
+  authJson: JsonRecord,
+  siblings: readonly JsonRecord[] = []
+) => {
   const provider = buildSafeFileNameSegment(firstNonEmpty(authJson.type, authJson.provider), {
     fallback: 'codex',
     maxLength: 24,
   });
-  const id = getDefaultAuthFileIdSegment(authJson);
+  const id =
+    isClaudeAuthJson(authJson) && !needsOrganizationSegment(authJson, siblings)
+      ? ''
+      : getDefaultAuthFileIdSegment(authJson);
   const identity = buildSafeFileNameSegment(
     firstNonEmpty(authJson.email, authJson.name, authJson.account_id, 'account'),
     {
@@ -1227,7 +1253,7 @@ export const buildAuthJsonFilePayloads = (
 
   return ensureUniqueAuthJsonFilePayloadNames(
     authJsonRecords.map((authJson) => ({
-      fileName: getDefaultSessionAuthFileName(authJson),
+      fileName: getDefaultSessionAuthFileName(authJson, authJsonRecords),
       authJson,
     }))
   );

@@ -1189,14 +1189,56 @@ describe('convertAuthJsonInput', () => {
 
     expect(result).toHaveLength(2);
     expect(result.map((item) => item.authJson.type)).toEqual(['codex', 'claude']);
-    // The id segment is the first 8 characters of the organization UUID.
-    expect(result[1].fileName).toBe('claude-2f1c4d6e-claude@example.com.json');
+    // A single organization for this email, so the email alone names the file.
+    expect(result[1].fileName).toBe('claude-claude@example.com.json');
     expect(result[1].authJson).toMatchObject({
       type: 'claude',
       email: 'claude@example.com',
       organization_uuid: '2f1c4d6e-8a90-4b21-9c3d-5e7f8a9b0c1d',
       access_token: 'claude-token',
     });
+  });
+
+  it('names a Claude file by email alone and only adds the organization on collision', () => {
+    const buildExport = (accounts: unknown[]) =>
+      JSON.stringify({ exported_at: '2026-06-01T12:00:00.000Z', proxies: [], accounts });
+    const claudeAccount = (name: string, email: string, orgUuid: string) => ({
+      name,
+      platform: 'anthropic',
+      type: 'oauth',
+      credentials: { access_token: `token-${name}` },
+      extra: { email_address: email, org_uuid: orgUuid },
+    });
+
+    const distinctEmails = buildAuthJsonFilePayloads(
+      'sub2api',
+      'codex-account.json',
+      buildExport([
+        claudeAccount('a', 'first@example.com', 'aaaaaaaa-1111-2222-3333-444444444444'),
+        claudeAccount('b', 'second@example.com', 'bbbbbbbb-5555-6666-7777-888888888888'),
+      ]),
+      new Date('2026-06-02T00:00:00.000Z')
+    );
+    expect(distinctEmails.map((item) => item.fileName)).toEqual([
+      'claude-first@example.com.json',
+      'claude-second@example.com.json',
+    ]);
+
+    // Claude allows one email to hold several organizations; those must stay
+    // distinguishable rather than differing only by an order-dependent suffix.
+    const sharedEmail = buildAuthJsonFilePayloads(
+      'sub2api',
+      'codex-account.json',
+      buildExport([
+        claudeAccount('work', 'me@example.com', 'aaaaaaaa-1111-2222-3333-444444444444'),
+        claudeAccount('personal', 'me@example.com', 'bbbbbbbb-5555-6666-7777-888888888888'),
+      ]),
+      new Date('2026-06-02T00:00:00.000Z')
+    );
+    expect(sharedEmail.map((item) => item.fileName)).toEqual([
+      'claude-aaaaaaaa-me@example.com.json',
+      'claude-bbbbbbbb-me@example.com.json',
+    ]);
   });
 
   it('rejects a sub2api Anthropic OAuth account missing credentials.access_token', () => {
