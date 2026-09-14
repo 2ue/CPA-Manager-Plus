@@ -1,0 +1,16 @@
+<b>9 月 14 日 · v7.2.151-max.5</b>
+
+<b>更新内容</b>
+
+• 凭证导入支持 Claude Code 账号：sub2api 导出中的 Anthropic OAuth 账号会转换成 CPA 可用的 Claude 登录文件。
+• 一份导出里同时包含 OpenAI 与 Anthropic 账号时，两种都会转换并各自生成独立文件，不再只取 OpenAI。
+• 生成的 Claude 文件按邮箱命名为 <code>claude-&lt;email&gt;.json</code>；同一邮箱下有多个组织时自动补上组织标识。
+• 不支持的平台与非 OAuth 账号会被跳过，不会导致整次导入失败。
+• sub2api 的 <code>expires_at</code> 为绝对 Unix 秒字符串，导入时会正确转换成 RFC3339。
+
+<b>注意事项</b>
+
+• 这是一个 fork 预发布版本，标签为 <code>v7.2.151-max.5</code>，无需手动迁移。
+• 行为变更：此前 sub2api 导出只导入 OpenAI 账号，现在 Anthropic 账号也会一并导入。
+
+<a href="https://github.com/2ue/CPA-Manager-Plus/releases/tag/v7.2.151-max.5">GitHub Release</a>

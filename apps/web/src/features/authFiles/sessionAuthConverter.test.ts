@@ -1075,14 +1075,6 @@ describe('convertAuthJsonInput', () => {
             concurrency: 3,
             priority: 50,
           },
-          {
-            name: 'Claude Account',
-            platform: 'anthropic',
-            type: 'oauth',
-            credentials: {
-              access_token: 'claude-token',
-            },
-          },
         ],
       }),
       'sub2api',
@@ -1106,6 +1098,167 @@ describe('convertAuthJsonInput', () => {
       last_refresh: '2026-06-01T12:00:00.000Z',
       expired: '2026-07-01T00:00:00.000Z',
     });
+  });
+
+  it('converts a sub2api Anthropic OAuth export to CPA Claude auth JSON', () => {
+    const result = convertAuthJsonInput(
+      JSON.stringify({
+        exported_at: '2026-06-01T12:00:00.000Z',
+        proxies: [],
+        accounts: [
+          {
+            name: 'Sub2API Claude',
+            platform: 'anthropic',
+            type: 'oauth',
+            credentials: {
+              access_token: 'claude-access-token',
+              refresh_token: 'claude-refresh-token',
+              token_type: 'Bearer',
+              scope: 'user:inference',
+              // sub2api serialises expiry as an absolute Unix-seconds string.
+              expires_in: '3600',
+              expires_at: '1780012800',
+            },
+            extra: {
+              email_address: 'claude-user@example.com',
+              org_uuid: 'org-uuid-1234',
+              account_uuid: 'account-uuid-5678',
+              organization_name: 'Example Org',
+            },
+          },
+        ],
+      }),
+      'sub2api',
+      new Date('2026-06-02T00:00:00.000Z')
+    );
+
+    expect(result).toEqual({
+      type: 'claude',
+      email: 'claude-user@example.com',
+      name: 'Sub2API Claude',
+      organization_uuid: 'org-uuid-1234',
+      organization_name: 'Example Org',
+      account_uuid: 'account-uuid-5678',
+      access_token: 'claude-access-token',
+      refresh_token: 'claude-refresh-token',
+      last_refresh: '2026-06-01T12:00:00.000Z',
+      expired: new Date(1780012800 * 1000).toISOString(),
+    });
+    // scope/token_type/expires_in have no CPA Claude counterpart and are dropped.
+    expect(result).not.toHaveProperty('scope');
+    expect(result).not.toHaveProperty('token_type');
+  });
+
+  it('converts both platforms from one mixed sub2api export', () => {
+    const input = JSON.stringify({
+      exported_at: '2026-06-01T12:00:00.000Z',
+      proxies: [],
+      accounts: [
+        {
+          name: 'Mixed OpenAI',
+          platform: 'openai',
+          type: 'oauth',
+          credentials: { access_token: 'openai-token', email: 'openai@example.com' },
+        },
+        {
+          name: 'Mixed Claude',
+          platform: 'anthropic',
+          type: 'oauth',
+          credentials: { access_token: 'claude-token' },
+          extra: {
+            email_address: 'claude@example.com',
+            org_uuid: '2f1c4d6e-8a90-4b21-9c3d-5e7f8a9b0c1d',
+          },
+        },
+        // Unsupported platforms are still skipped rather than failing the import.
+        {
+          name: 'Gemini',
+          platform: 'gemini',
+          type: 'oauth',
+          credentials: { access_token: 'gemini-token' },
+        },
+      ],
+    });
+
+    const result = buildAuthJsonFilePayloads(
+      'sub2api',
+      'codex-account.json',
+      input,
+      new Date('2026-06-02T00:00:00.000Z')
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result.map((item) => item.authJson.type)).toEqual(['codex', 'claude']);
+    // A single organization for this email, so the email alone names the file.
+    expect(result[1].fileName).toBe('claude-claude@example.com.json');
+    expect(result[1].authJson).toMatchObject({
+      type: 'claude',
+      email: 'claude@example.com',
+      organization_uuid: '2f1c4d6e-8a90-4b21-9c3d-5e7f8a9b0c1d',
+      access_token: 'claude-token',
+    });
+  });
+
+  it('names a Claude file by email alone and only adds the organization on collision', () => {
+    const buildExport = (accounts: unknown[]) =>
+      JSON.stringify({ exported_at: '2026-06-01T12:00:00.000Z', proxies: [], accounts });
+    const claudeAccount = (name: string, email: string, orgUuid: string) => ({
+      name,
+      platform: 'anthropic',
+      type: 'oauth',
+      credentials: { access_token: `token-${name}` },
+      extra: { email_address: email, org_uuid: orgUuid },
+    });
+
+    const distinctEmails = buildAuthJsonFilePayloads(
+      'sub2api',
+      'codex-account.json',
+      buildExport([
+        claudeAccount('a', 'first@example.com', 'aaaaaaaa-1111-2222-3333-444444444444'),
+        claudeAccount('b', 'second@example.com', 'bbbbbbbb-5555-6666-7777-888888888888'),
+      ]),
+      new Date('2026-06-02T00:00:00.000Z')
+    );
+    expect(distinctEmails.map((item) => item.fileName)).toEqual([
+      'claude-first@example.com.json',
+      'claude-second@example.com.json',
+    ]);
+
+    // Claude allows one email to hold several organizations; those must stay
+    // distinguishable rather than differing only by an order-dependent suffix.
+    const sharedEmail = buildAuthJsonFilePayloads(
+      'sub2api',
+      'codex-account.json',
+      buildExport([
+        claudeAccount('work', 'me@example.com', 'aaaaaaaa-1111-2222-3333-444444444444'),
+        claudeAccount('personal', 'me@example.com', 'bbbbbbbb-5555-6666-7777-888888888888'),
+      ]),
+      new Date('2026-06-02T00:00:00.000Z')
+    );
+    expect(sharedEmail.map((item) => item.fileName)).toEqual([
+      'claude-aaaaaaaa-me@example.com.json',
+      'claude-bbbbbbbb-me@example.com.json',
+    ]);
+  });
+
+  it('rejects a sub2api Anthropic OAuth account missing credentials.access_token', () => {
+    expect(() =>
+      convertAuthJsonInput(
+        JSON.stringify({
+          exported_at: '2026-06-01T12:00:00.000Z',
+          proxies: [],
+          accounts: [
+            {
+              name: 'Broken Claude',
+              platform: 'anthropic',
+              type: 'oauth',
+              credentials: { refresh_token: 'only-refresh' },
+            },
+          ],
+        }),
+        'sub2api'
+      )
+    ).toThrow('sub2api Anthropic OAuth account "Broken Claude" is missing credentials.access_token');
   });
 
   it('converts multiple sub2api OpenAI OAuth accounts to separate CPA auth files', () => {
@@ -1310,7 +1463,7 @@ describe('convertAuthJsonInput', () => {
     expect(result).not.toHaveProperty('id_token');
   });
 
-  it('rejects sub2api exports without supported OpenAI OAuth accounts', () => {
+  it('rejects sub2api exports without supported OAuth accounts', () => {
     expect(() =>
       convertAuthJsonInput(
         JSON.stringify({
@@ -1318,18 +1471,27 @@ describe('convertAuthJsonInput', () => {
           proxies: [],
           accounts: [
             {
-              name: 'Claude Account',
-              platform: 'anthropic',
+              name: 'Gemini Account',
+              platform: 'gemini',
               type: 'oauth',
               credentials: {
-                access_token: 'claude-token',
+                access_token: 'gemini-token',
+              },
+            },
+            // An API-key account on a supported platform is not an OAuth login.
+            {
+              name: 'Anthropic API Key',
+              platform: 'anthropic',
+              type: 'api_key',
+              credentials: {
+                api_key: 'sk-ant-example',
               },
             },
           ],
         }),
         'sub2api'
       )
-    ).toThrow('No sub2api OpenAI OAuth account with credentials.access_token was found');
+    ).toThrow('No sub2api OpenAI or Anthropic OAuth account with credentials.access_token was found');
   });
 
   it('rejects sub2api OpenAI OAuth accounts missing credentials.access_token', () => {
